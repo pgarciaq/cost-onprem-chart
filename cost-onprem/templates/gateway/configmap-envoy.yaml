@@ -135,11 +135,11 @@ data:
                       prefix: "/api/cost-management/"
                     route:
                       cluster: koku-api-backend
-                      timeout: 60s
+                      timeout: {{ .Values.jwtAuth.envoy.routeTimeout | default "60s" }}
                       retry_policy:
                         retry_on: 5xx,reset,connect-failure,refused-stream
                         num_retries: 2
-                        per_try_timeout: 30s
+                        per_try_timeout: {{ .Values.jwtAuth.envoy.routePerTryTimeout | default "30s" }}
 
                   # 4a. Ingress - Health check endpoint (specific path before general prefix)
                   - match:
@@ -529,6 +529,10 @@ data:
                 - ECDHE-RSA-AES256-GCM-SHA384
                 - ECDHE-ECDSA-CHACHA20-POLY1305
                 - ECDHE-RSA-CHACHA20-POLY1305
+              {{- if .Values.jwtAuth.keycloak.tls.insecureSkipVerify }}
+              validation_context:
+                trust_chain_verification: ACCEPT_UNTRUSTED
+              {{- else }}
               validation_context:
                 trusted_ca:
                   filename: /etc/ca-certificates/ca-bundle.crt
@@ -536,6 +540,7 @@ data:
                   - san_type: DNS
                     matcher:
                       exact: {{ $keycloakUrl | replace "https://" "" | replace "http://" "" }}
+              {{- end }}
 
     admin:
       address:

@@ -247,7 +247,7 @@ metadata:
   name: rhbk-operator
   namespace: $NAMESPACE
 spec:
-  channel: stable-v22
+  channel: stable-v26
   installPlanApproval: Automatic
   name: rhbk-operator
   source: redhat-operators

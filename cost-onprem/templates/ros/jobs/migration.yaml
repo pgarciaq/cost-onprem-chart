@@ -23,6 +23,10 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Values.ros.serviceAccount.name }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- include "cost-onprem.securityContext.pod" . | nindent 8 }}
 

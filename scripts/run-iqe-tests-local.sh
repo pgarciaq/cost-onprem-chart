@@ -376,7 +376,8 @@ extract_cluster_config() {
         error "Failed to get Keycloak route"
         exit 1
     fi
-    export DYNACONF_ONPREM_OAUTH_URL="https://${keycloak_host}/realms/kubernetes/protocol/openid-connect"
+    local keycloak_realm="${KEYCLOAK_REALM:-cost-management}"
+    export DYNACONF_ONPREM_OAUTH_URL="https://${keycloak_host}/realms/${keycloak_realm}/protocol/openid-connect"
     
     # Masu configuration — set after ensure_masu_route populates MASU_ROUTE_HOST
     export DYNACONF_ONPREM_MASU_HOSTNAME="${MASU_ROUTE_HOST:-pending}"
