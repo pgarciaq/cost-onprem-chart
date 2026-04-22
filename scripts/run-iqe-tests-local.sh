@@ -699,7 +699,7 @@ clean_sources() {
             -w "%{http_code}" -o /dev/null 2>/dev/null)
         
         if [ "$delete_response" = "204" ] || [ "$delete_response" = "200" ]; then
-            ((deleted++))
+            deleted=$((deleted + 1))
         else
             log_verbose "Warning: Failed to delete source $uuid (HTTP $delete_response)"
         fi
@@ -729,7 +729,7 @@ clean_sources() {
                 -w "%{http_code}" -o /dev/null 2>/dev/null)
             
             if [ "$cm_delete_response" = "204" ] || [ "$cm_delete_response" = "200" ]; then
-                ((cm_deleted++))
+                cm_deleted=$((cm_deleted + 1))
             fi
         done
         log "✓ Deleted $cm_deleted cost models"
