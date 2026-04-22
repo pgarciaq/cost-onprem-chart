@@ -1148,23 +1148,25 @@ class TestCompleteDataFlow:
             row_count, cpu_hours, mem_gb_hours = summary_stats[0]
             print(f"  ✅ Summary tables populated: {row_count} rows, {float(cpu_hours):.2f} CPU-hours, {float(mem_gb_hours):.2f} GB-hours")
 
-    @pytest.mark.timeout(300)  # 5 minutes for Kruize experiments
+    @pytest.mark.timeout(300)  # 5 minutes for ROS recommendations
     def test_07_kruize_experiments_created(
         self, cluster_config, registered_source, e2e_test_data: dict
     ):
-        """Step 7: Verify Kruize experiments were created from ROS events.
+        """Step 7: Verify ROS recommendations were created from ROS events.
         
-        IMPORTANT: Kruize experiment creation requires:
+        Checks both the native engine (recommendation_sets in costonprem_ros)
+        and the legacy Kruize engine (kruize_experiments in costonprem_kruize).
+        
+        IMPORTANT: Recommendation creation requires:
         1. Summary tables to be populated (test_06 must pass)
         2. ROS events to be emitted by Koku
-        3. ROS Processor to consume events and send to Kruize
+        3. ROS Processor to consume events and generate recommendations
         4. Proper OCP data format with resource metrics
         """
-        # Check data format
         data_generator = e2e_test_data.get("generator", "unknown")
         if data_generator == "simple":
             pytest.skip(
-                "Kruize experiments require NISE-generated data with proper resource metrics. "
+                "ROS recommendations require NISE-generated data with proper resource metrics. "
                 "Simple data format may not contain required fields for ROS processing."
             )
         
@@ -1176,41 +1178,48 @@ class TestCompleteDataFlow:
             pytest.skip("Database pod not found")
         
         secret_name = f"{cluster_config.helm_release_name}-db-credentials"
-        kruize_user = get_secret_value(cluster_config.namespace, secret_name, "kruize-user")
-        kruize_password = get_secret_value(cluster_config.namespace, secret_name, "kruize-password")
-        
-        if not kruize_user:
-            pytest.skip("Kruize credentials not found - ROS may not be deployed")
-        
         cluster_id = registered_source["cluster_id"]
         
-        def check_experiments():
+        def check_native_recommendations():
+            """Check native engine recommendation_sets in costonprem_ros."""
+            result = execute_db_query(
+                cluster_config.namespace,
+                db_pod,
+                "costonprem_ros",
+                "postgres",
+                f"SELECT COUNT(*) FROM recommendation_sets WHERE cluster_uuid = '{cluster_id}'",
+            )
+            return result is not None and int(result[0][0]) > 0
+        
+        def check_kruize_experiments():
+            """Check legacy Kruize experiments in costonprem_kruize."""
+            kruize_user = get_secret_value(cluster_config.namespace, secret_name, "kruize-user")
+            kruize_password = get_secret_value(cluster_config.namespace, secret_name, "kruize-password")
+            if not kruize_user:
+                return False
             result = execute_db_query(
                 cluster_config.namespace,
                 db_pod,
                 "costonprem_kruize",
                 kruize_user,
-                f"""
-                SELECT COUNT(*) FROM kruize_experiments
-                WHERE cluster_name LIKE '%{cluster_id}%'
-                """,
+                f"SELECT COUNT(*) FROM kruize_experiments WHERE cluster_name LIKE '%{cluster_id}%'",
                 password=kruize_password,
             )
             return result is not None and int(result[0][0]) > 0
         
-        # Kruize processing takes time - ROS events must flow through
+        def check_recommendations():
+            return check_native_recommendations() or check_kruize_experiments()
+        
         success = wait_for_condition(
-            check_experiments,
+            check_recommendations,
             timeout=240,  # 4 minutes
             interval=20,
-            description="Kruize experiment creation",
+            description="ROS recommendation creation",
         )
         
         if not success:
-            # Get diagnostic info
             ros_events_check = None
             try:
-                # Check if ROS events topic has messages
                 result = run_oc_command([
                     "exec", "-n", cluster_config.namespace,
                     "kafka-cluster-kafka-0", "--",
@@ -1226,14 +1235,13 @@ class TestCompleteDataFlow:
                 ros_events_check = "Could not check ROS events topic"
             
             assert False, (
-                f"Kruize experiments not created for cluster '{cluster_id}'.\n"
+                f"ROS recommendations not created for cluster '{cluster_id}'.\n"
                 f"ROS Events: {ros_events_check}\n"
                 "\nPossible causes:\n"
                 "  1. Summary tables not populated (test_06 must pass first)\n"
                 "  2. ROS events not being emitted by Koku\n"
                 "  3. ROS Processor not consuming events\n"
-                "  4. Kruize not processing ROS data\n"
-                "  5. Data format missing required resource metrics\n"
+                "  4. Data format missing required resource metrics\n"
                 "\nTo debug:\n"
                 "  - Check ROS Processor logs: oc logs -l app.kubernetes.io/component=ros-processor\n"
                 "  - Check Kruize logs: oc logs -l app.kubernetes.io/name=kruize\n"

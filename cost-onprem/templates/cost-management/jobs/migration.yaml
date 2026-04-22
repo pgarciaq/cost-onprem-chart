@@ -22,6 +22,10 @@ spec:
     spec:
       serviceAccountName: {{ include "cost-onprem.koku.serviceAccountName" . }}
       restartPolicy: Never
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
       securityContext:
         {{- include "cost-onprem.securityContext.pod" . | nindent 8 }}
