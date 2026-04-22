@@ -17,6 +17,10 @@ spec:
         {{- include "cost-onprem.koku.celery.worker.labels" (dict "context" . "type" "download") | nindent 8 }}
     spec:
       serviceAccountName: {{ include "cost-onprem.koku.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       automountServiceAccountToken: false
 
 

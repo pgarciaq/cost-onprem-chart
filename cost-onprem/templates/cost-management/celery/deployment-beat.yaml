@@ -21,6 +21,10 @@ spec:
         cost-onprem.io/celery-type: beat
     spec:
       serviceAccountName: {{ include "cost-onprem.koku.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       automountServiceAccountToken: false
 
 

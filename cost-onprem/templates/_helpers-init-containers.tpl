@@ -114,6 +114,7 @@ Wait for Kruize init container
 Usage: {{ include "cost-onprem.initContainer.waitForKruize" . | nindent 8 }}
 */}}
 {{- define "cost-onprem.initContainer.waitForKruize" -}}
+{{- if not (and (hasKey .Values.kruize "enabled") (not .Values.kruize.enabled)) -}}
 - name: wait-for-kruize
   image: "{{ .Values.global.initContainers.waitFor.repository }}:{{ .Values.global.initContainers.waitFor.tag }}"
   securityContext:
@@ -127,6 +128,7 @@ Usage: {{ include "cost-onprem.initContainer.waitForKruize" . | nindent 8 }}
         sleep 5
       done
       echo "Kruize is ready"
+{{- end -}}
 {{- end -}}
 
 {{/*

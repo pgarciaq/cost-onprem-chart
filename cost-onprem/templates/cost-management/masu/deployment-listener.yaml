@@ -19,6 +19,10 @@ spec:
         app.kubernetes.io/component: listener
     spec:
       serviceAccountName: {{ .Values.costManagement.serviceAccount.name }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       automountServiceAccountToken: false
 
       securityContext:

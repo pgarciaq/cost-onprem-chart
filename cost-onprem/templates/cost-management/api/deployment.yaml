@@ -18,6 +18,10 @@ spec:
         app.kubernetes.io/component: cost-management-api
     spec:
       serviceAccountName: {{ include "cost-onprem.koku.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       automountServiceAccountToken: false
 
       securityContext:
