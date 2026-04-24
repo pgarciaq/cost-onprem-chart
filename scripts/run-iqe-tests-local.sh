@@ -401,26 +401,31 @@ extract_cluster_config() {
     S3_ROS_BUCKET="${S3_ROS_BUCKET:-ros-data}"
     export S3_SECRET_NAME="${HELM_RELEASE_NAME}-storage-credentials"
 
-    # The masu pod uses in-cluster DNS (e.g. https://s3.openshift-storage.svc).
-    # For local runs we need the external route instead.
-    if [[ "$s3_internal_endpoint" =~ \.svc(/|$|:) ]] || [[ "$s3_internal_endpoint" =~ \.svc\.cluster ]]; then
-        local s3_host s3_svc_name s3_ns s3_route_host
-        s3_host=$(echo "$s3_internal_endpoint" | sed -E 's|https?://||; s|[:/].*||')
-        s3_svc_name="${s3_host%%.*}"
-        s3_ns="${s3_host#*.}"
-        s3_ns="${s3_ns%.svc*}"
+    # If S3_ENDPOINT is pre-set (e.g. via port-forward), respect it.
+    if [ -n "${S3_ENDPOINT:-}" ]; then
+        log_verbose "  S3: using pre-set S3_ENDPOINT=$S3_ENDPOINT (skipping auto-detection)"
+    else
+        # The masu pod uses in-cluster DNS (e.g. https://s3.openshift-storage.svc).
+        # For local runs we need the external route instead.
+        if [[ "$s3_internal_endpoint" =~ \.svc(/|$|:) ]] || [[ "$s3_internal_endpoint" =~ \.svc\.cluster ]]; then
+            local s3_host s3_svc_name s3_ns s3_route_host
+            s3_host=$(echo "$s3_internal_endpoint" | sed -E 's|https?://||; s|[:/].*||')
+            s3_svc_name="${s3_host%%.*}"
+            s3_ns="${s3_host#*.}"
+            s3_ns="${s3_ns%.svc*}"
 
-        s3_route_host=$(kubectl get route "$s3_svc_name" -n "$s3_ns" \
-            -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
-        if [ -n "$s3_route_host" ]; then
-            export S3_ENDPOINT="https://$s3_route_host"
-            log_verbose "  S3: resolved in-cluster $s3_internal_endpoint → external $S3_ENDPOINT"
+            s3_route_host=$(kubectl get route "$s3_svc_name" -n "$s3_ns" \
+                -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+            if [ -n "$s3_route_host" ]; then
+                export S3_ENDPOINT="https://$s3_route_host"
+                log_verbose "  S3: resolved in-cluster $s3_internal_endpoint → external $S3_ENDPOINT"
+            else
+                export S3_ENDPOINT="$s3_internal_endpoint"
+                log "WARNING: S3 endpoint $s3_internal_endpoint is in-cluster but no external route found"
+            fi
         else
             export S3_ENDPOINT="$s3_internal_endpoint"
-            log "WARNING: S3 endpoint $s3_internal_endpoint is in-cluster but no external route found"
         fi
-    else
-        export S3_ENDPOINT="$s3_internal_endpoint"
     fi
 
     if [[ "$S3_ENDPOINT" =~ ^http:// ]]; then
