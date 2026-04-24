@@ -5,9 +5,10 @@ Single Node OpenShift (SNO) cluster. It covers building custom arm64 container
 images, deploying the Helm chart, generating test data with nise, and running
 the test suite.
 
-**Cluster:** SNO 4.21 on `hpe-apollo-cn99xx-16.khw.eng.rdu2.dc.redhat.com` (aarch64, 64 cores, 128 GiB RAM)
-**Last deployed:** 2026-04-21
-**Helm release:** `cost-onprem` (namespace `cost-onprem`)
+**Cluster:** SNO 4.21.9 on `hpe-apollo-cn99xx-16.khw.eng.rdu2.dc.redhat.com` (aarch64, 64 cores, 128 GiB RAM)
+**Node:** `sno-sno.karmalabs.corp` (192.168.122.115)
+**Last deployed:** 2026-04-24
+**Helm release:** `cost-onprem` revision 5 (namespace `cost-onprem`)
 
 ---
 
@@ -27,6 +28,9 @@ the test suite.
 - [Troubleshooting](#troubleshooting)
 - [Useful Commands](#useful-commands)
 - [Resuming After Reboot](#resuming-after-reboot)
+- [Running IQE Tests](#running-iqe-tests)
+- [Monday Redeployment Runbook](#monday-redeployment-runbook)
+- [Branch Reference](#branch-reference)
 
 ---
 
@@ -49,7 +53,7 @@ directly reachable externally. The hypervisor's external IP is `10.6.8.105`.
 Add to your workstation's `/etc/hosts`:
 
 ```
-192.168.122.131  cost-onprem-ui-cost-onprem.apps.sno.karmalabs.corp cost-onprem-gateway-cost-onprem.apps.sno.karmalabs.corp keycloak-keycloak.apps.sno.karmalabs.corp
+192.168.122.115  api.sno.karmalabs.corp console-openshift-console.apps.sno.karmalabs.corp oauth-openshift.apps.sno.karmalabs.corp keycloak.apps.sno.karmalabs.corp keycloak-keycloak.apps.sno.karmalabs.corp cost-onprem-gateway-cost-onprem.apps.sno.karmalabs.corp cost-onprem-masu-cost-onprem.apps.sno.karmalabs.corp cost-onprem-masu-iqe-cost-onprem.apps.sno.karmalabs.corp cost-onprem-ui-cost-onprem.apps.sno.karmalabs.corp
 ```
 
 ### SSH SOCKS Proxy (recommended)
@@ -61,6 +65,15 @@ ssh -D 1080 -N root@hpe-apollo-cn99xx-16.khw.eng.rdu2.dc.redhat.com
 Configure your browser to use SOCKS5 proxy at `localhost:1080` (in Firefox:
 Settings > Network Settings > Manual proxy > SOCKS Host `localhost`, Port `1080`,
 select SOCKS v5, check "Proxy DNS when using SOCKS v5").
+
+### sshuttle (recommended for CLI access)
+
+```bash
+sshuttle -r root@hpe-apollo-cn99xx-16.khw.eng.rdu2.dc.redhat.com 192.168.122.0/24
+```
+
+This transparently routes all traffic to the cluster's subnet. Required for
+`oc` commands, `curl` to cluster routes, and IQE tests.
 
 ### Alternative: Static Route
 
@@ -496,8 +509,15 @@ Expected: **210 passed, 7 skipped** (UI tests deselected with `--no-ui`).
 |-------|-------|
 | Username | `test` |
 | Password | `test123` |
-| org_id | `1234567` |
-| account_number | `10001` |
+| org_id | `org1234567` |
+| account_number | `7890123` |
+
+### Keycloak Admin
+
+| Field | Value |
+|-------|-------|
+| Username | `temp-admin` |
+| Password | `da9eef9b6a9649c1a4f00099e6787bb4` |
 
 ### Keycloak Clients
 
@@ -534,6 +554,11 @@ oc get secret cost-onprem-db-credentials -n cost-onprem -o jsonpath='{.data.post
 | Listener `Init:ImagePullBackOff` for `ubi9/ubi-minimal` | Red Hat registry unreachable | Patch init container `imagePullPolicy` to `IfNotPresent` |
 | All costs `0.00` but usage non-zero | No cost model rates applied | Create/update cost model via API with actual rates |
 | Kruize experiments table empty (Phase 6) | Native engine stores in `costonprem_ros.recommendation_sets`, not `costonprem_kruize` | Expected behavior — check `recommendation_sets` instead |
+| IQE `InvalidAccessKeyId` from MinIO | `cost-onprem-storage-credentials` has placeholder values | Patch secret with `minioadmin` (see "Running IQE Tests" section) |
+| IQE `RecursionError` in `ssl.py` | `truststore` + `botocore` SSLContext conflict | Use `pgarciaq-truststore-recursion-fix` branch of iqe-cost-management-plugin |
+| IQE Keycloak `404 Not Found` for realm | Script defaults to `cost-management` realm but cluster has `kubernetes` | Set `KEYCLOAK_REALM=kubernetes` |
+| IQE `EndpointConnectionError` to MinIO `.svc` | In-cluster DNS unreachable from workstation | Port-forward MinIO + set `S3_ENDPOINT=http://localhost:9099` |
+| `podman push` to internal registry fails (DNS) | Registry route not resolvable from workstation | Use `oc port-forward svc/image-registry 5000:5000` + push to `localhost:5000` |
 
 ---
 
@@ -630,3 +655,262 @@ oc get pods -n keycloak
 # Flush cache for fresh API responses
 oc exec -n cost-onprem deploy/cost-onprem-valkey -- valkey-cli FLUSHALL
 ```
+
+---
+
+## Running IQE Tests
+
+IQE tests run from the workstation against the cluster. Several workarounds
+are needed due to the on-prem/aarch64 environment.
+
+### Prerequisites
+
+1. `sshuttle` running to the hypervisor (for cluster connectivity)
+2. `oc login` to the cluster
+3. Port-forward for MinIO S3 (IQE tests access S3 directly for ROS verification)
+
+### MinIO Port-Forward
+
+The IQE test fixtures access MinIO for S3 bucket verification. Since in-cluster
+DNS (`minio.cost-onprem.svc`) is not reachable from the workstation, use a
+port-forward:
+
+```bash
+oc port-forward -n cost-onprem svc/minio 9099:9000 &
+```
+
+### Storage Credentials Fix
+
+The `cost-onprem-storage-credentials` secret must have the correct MinIO
+credentials (not placeholders):
+
+```bash
+oc patch secret cost-onprem-storage-credentials -n cost-onprem --type merge -p \
+  "{\"data\":{\"access-key\":\"$(echo -n minioadmin | base64)\",\"secret-key\":\"$(echo -n minioadmin | base64)\"}}"
+```
+
+### Running the Tests
+
+```bash
+cd ~/dev/koku/cost-onprem-chart
+
+# All IQE tests (cost + ROS, excluding stage-only tests)
+KEYCLOAK_REALM=kubernetes \
+S3_ENDPOINT=http://localhost:9099 \
+./scripts/run-iqe-tests-local.sh --clean-sources
+
+# ROS tests only
+KEYCLOAK_REALM=kubernetes \
+S3_ENDPOINT=http://localhost:9099 \
+IQE_FILTER="test_api_ocp_ros" \
+./scripts/run-iqe-tests-local.sh --clean-sources
+```
+
+### Key Environment Variables
+
+| Variable | Value | Why |
+|----------|-------|-----|
+| `KEYCLOAK_REALM` | `kubernetes` | Script defaults to `cost-management` but the deployed realm is `kubernetes` |
+| `S3_ENDPOINT` | `http://localhost:9099` | Prevents script from auto-detecting the in-cluster endpoint |
+| `IQE_FILTER` | `test_api_ocp_ros` | (Optional) Run only ROS tests |
+
+### Expected Results (as of 2026-04-24)
+
+- **Full IQE run:** 2 passed, 1 skipped (the skipped test is `test_api_ocp_ros_kafka_content` which requires stage environment)
+- **ROS subset:** `test_api_ocp_ros_report_upload` and `test_api_ocp_ros_recommendations` pass
+
+### truststore + botocore RecursionError Fix
+
+The IQE plugin uses `truststore` which conflicts with `botocore`'s SSL context
+creation, causing a `RecursionError`. The fix is in the
+`pgarciaq-truststore-recursion-fix` branch of `iqe-cost-management-plugin`,
+committed in `conftest.py`. This fix patches `ssl.SSLContext` properties to
+use C-level descriptors directly, bypassing the broken `super()` chain.
+
+---
+
+## Monday Redeployment Runbook
+
+If the cluster was reprovisioned or you need to start fresh, follow these steps.
+
+### Cluster Access
+
+```bash
+# 1. Start sshuttle
+sshuttle -r root@hpe-apollo-cn99xx-16.khw.eng.rdu2.dc.redhat.com 192.168.122.0/24
+
+# 2. Ensure /etc/hosts has the cluster entries (see "Network Access" section above)
+
+# 3. Login to the cluster
+oc login -s https://api.sno.karmalabs.corp:6443 -u kubeadmin --password <PASSWORD>
+```
+
+### If Cluster Is Still Running (Same State)
+
+```bash
+# Verify pods
+oc get pods -n cost-onprem -l app.kubernetes.io/instance=cost-onprem
+oc get pods -n kafka
+oc get pods -n keycloak
+
+# Flush cache
+oc exec -n cost-onprem deploy/cost-onprem-valkey -- valkey-cli FLUSHALL
+
+# Start MinIO port-forward for IQE tests
+oc port-forward -n cost-onprem svc/minio 9099:9000 &
+
+# Run IQE ROS tests
+cd ~/dev/koku/cost-onprem-chart
+KEYCLOAK_REALM=kubernetes S3_ENDPOINT=http://localhost:9099 \
+  ./scripts/run-iqe-tests-local.sh --clean-sources
+```
+
+### If Cluster Was Reprovisioned (Fresh Install)
+
+Follow steps 1-8 in this document, with these important notes:
+
+1. **Build images on the hypervisor** (Step 1) — source repos are at `/root/{koku,ros-ocp-backend,...}`
+2. **Push to internal registry** (Step 2) — use the hypervisor's direct access
+3. **Deploy infra** (Step 3) — Keycloak, Kafka, MinIO
+4. **Deploy Helm chart** (Step 4) — use `sno-arm64-values.yaml` (local file in cost-onprem-chart root)
+5. **Apply post-install fixes** (Step 4 bottom) — ingress env var, listener S3 creds, init container fix
+6. **Generate data** (Step 5) and **upload** (Step 6)
+7. **Scale workers** (Step 7)
+8. **Run tests** (Step 8 + IQE section above)
+
+### Rebuilding ros-ocp-backend on the Workstation
+
+If you need to rebuild the `ros-ocp-backend` image from the workstation (e.g.,
+after code changes), use `oc port-forward` to access the internal registry:
+
+```bash
+# Terminal 1: port-forward the image registry
+oc port-forward -n openshift-image-registry svc/image-registry 5000:5000
+
+# Terminal 2: build and push
+cd ~/dev/koku/ros-ocp-backend
+podman build -t localhost:5000/cost-onprem/ros-ocp-backend:phase6 .
+podman login --tls-verify=false -u $(oc whoami) -p $(oc whoami -t) localhost:5000
+podman push --tls-verify=false localhost:5000/cost-onprem/ros-ocp-backend:phase6
+
+# Restart deployments to pick up the new image
+oc rollout restart deploy/cost-onprem-ros-api -n cost-onprem
+oc rollout restart deploy/cost-onprem-ros-processor -n cost-onprem
+```
+
+### Actual Helm Values Used (Revision 5)
+
+```yaml
+costManagement:
+  api:
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku
+      tag: latest
+database:
+  server:
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/postgresql
+      tag: "16"
+global:
+  clusterDomain: apps.sno.karmalabs.corp
+  storageClass: lvms-vg1
+ingress:
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-ingress-go
+    tag: latest
+jwtAuth:
+  keycloak:
+    url: https://keycloak-keycloak.apps.sno.karmalabs.corp
+kruize:
+  enabled: true
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/kruize
+    tag: latest
+objectStorage:
+  bucketName: koku-bucket
+  endpoint: minio.cost-onprem.svc
+  ingress:
+    bucketName: insights-upload-perma
+  port: 9000
+  ros:
+    bucketName: ros-data
+  secretName: minio-credentials
+  useSSL: false
+  verifySSL: false
+ros:
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
+    tag: phase6
+ui:
+  replicaCount: 0
+valkey:
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/valkey
+    tag: "8"
+```
+
+### Actual Credentials (as deployed)
+
+| Secret | Key | Value |
+|--------|-----|-------|
+| `minio-credentials` | access-key / secret-key | `minioadmin` / `minioadmin` |
+| `cost-onprem-storage-credentials` | access-key / secret-key | `minioadmin` / `minioadmin` |
+| `cost-onprem-db-credentials` | postgres-user / postgres-password | `postgres` / `m7tfs2LrkL6AMvxYzqIbNs9oAlzJK3R1` |
+| `cost-onprem-db-credentials` | koku-user / koku-password | `koku_user` / `e2RAxHhSG75Ez8QmeCJVOkfb7Hd0odaW` |
+| `cost-onprem-db-credentials` | ros-user / ros-password | `ros_user` / `5CiBqyyCVlFqxKPDM2WobJjUXLZPOJTA` |
+| `cost-onprem-db-credentials` | kruize-user / kruize-password | `kruize_user` / `wVZNsuSacADmFYSlKGlyJSLCoK5wf8n4` |
+| `cost-onprem-django-secret` | secret-key | `1MztIYhT9TqZU6NXiSQujk52CF5A5oxV1oDNOzgDbSETvv7rhT` |
+| `keycloak-initial-admin` | username / password | `temp-admin` / `da9eef9b6a9649c1a4f00099e6787bb4` |
+| `keycloak-client-secret-cost-management-operator` | CLIENT_ID / CLIENT_SECRET | `cost-management-operator` / `nq0SWltwVWKi6tK5V8kbSbJ51xndsxAY` |
+| `keycloak-client-secret-cost-management-ui` | CLIENT_ID / CLIENT_SECRET | `cost-management-ui` / `51dLXkFdTRxcIcnsIl292PUqMU21Qiy4` |
+
+### Keycloak Realm Configuration
+
+Realm name: `kubernetes` (NOT `cost-management` or `redhat-external`)
+
+Test user:
+- username: `test`, password: `test123`
+- org_id attribute: `org1234567`
+- account_number attribute: `7890123`
+
+Clients:
+- `cost-management-operator` (service account, hardcoded org_id=org1234567)
+- `cost-management-ui` (direct access grants enabled, redirects to UI route)
+
+The full `KeycloakRealmImport` CR is in the `keycloak` namespace:
+```bash
+oc get keycloakrealmimport kubernetes-realm -n keycloak -o yaml
+```
+
+---
+
+## Branch Reference
+
+All code changes are committed and pushed to remotes:
+
+| Repo | Branch | Remote | Key Commits |
+|------|--------|--------|-------------|
+| `ros-ocp-backend` | `pgarciaq-rosocp-superpowers-phase6` | `pgarciaq` (github.com:pgarciaq/ros-ocp-backend) | Align native list API response with Kruize format (`f6c5d42`) |
+| `iqe-cost-management-plugin` | `pgarciaq-truststore-recursion-fix` | `pgarciaq` (gitlab.cee.redhat.com:pgarciaq/iqe-cost-management-plugin) | truststore+botocore fix (`e33b201`), Kruize-only test format (`d85f438`) |
+| `cost-onprem-chart` | `pgarciaq-rosocp-superpowers-phase6` | **local only** (no fork; push to fork when created) | IQE script fixes (`139b413`, `d42b963`), Phase 6 chart enhancements (`de6ad95`) |
+
+### Unpushed: cost-onprem-chart
+
+The `cost-onprem-chart` branch could not be pushed because no GitHub fork exists.
+Create a fork and push:
+
+```bash
+# After creating the fork on GitHub:
+cd ~/dev/koku/cost-onprem-chart
+git remote add pgarciaq git@github.com:pgarciaq/cost-onprem-chart.git
+git push pgarciaq pgarciaq-rosocp-superpowers-phase6
+```
+
+### Local-only files (not committed, Apollo-specific)
+
+These files in `cost-onprem-chart/` are Apollo-specific and not committed:
+
+| File | Purpose |
+|------|---------|
+| `sno-arm64-values.yaml` | Helm values referencing quay.io/pgarciaq images |
+| `phase6-values-override.yaml` | Phase6 ROS image tag + worker scaling for IQE |
