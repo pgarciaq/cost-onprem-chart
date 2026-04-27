@@ -101,6 +101,8 @@ spec:
               value: {{ .Values.ros.processor.logLevel | quote }}
             - name: PROMETHEUS_PORT
               value: {{ .Values.ros.processor.metricsPort | quote }}
+            - name: KOKU_MASU_URL
+              value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
             # SSL_CERT_FILE is used by Go's crypto/x509 to load CA certificates
             # Points to combined bundle with system CAs + OpenShift cluster CA + Service CA
             - name: SSL_CERT_FILE
