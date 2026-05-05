@@ -32,6 +32,8 @@ KEYCLOAK_SECRET_NAME="${KEYCLOAK_SECRET_NAME:-keycloak-client-secret-cost-manage
 IQE_CORE_PATH="${IQE_CORE_PATH:-${PROJECT_ROOT}/../iqe-core}"
 IQE_PLUGIN_PATH="${IQE_PLUGIN_PATH:-${PROJECT_ROOT}/../iqe-cost-management-plugin}"
 VENV_PATH="${VENV_PATH:-${PROJECT_ROOT}/.venv-iqe}"
+# Pin iqe-core to a known-compatible version to avoid dishka DI breakage
+IQE_CORE_VERSION="${IQE_CORE_VERSION:-v26.04.23.0}"
 
 # PyPI configuration for Red Hat internal packages
 PYPI_INDEX_URL="${PYPI_INDEX_URL:-https://nexus.corp.redhat.com/repository/cqt-pypi/simple}"
@@ -84,6 +86,7 @@ Test Profiles (use --profile):
 
 Environment Variables:
     IQE_CORE_PATH        Path to iqe-core repo (default: ../iqe-core)
+    IQE_CORE_VERSION     iqe-core git tag to pin (default: v26.04.23.0, set empty to skip)
     IQE_PLUGIN_PATH      Path to iqe-cost-management-plugin repo (default: ../iqe-cost-management-plugin)
     VENV_PATH            Path to virtual environment (default: .venv-iqe)
     PYTHON_BIN           Python binary to use (default: python3.12)
@@ -214,6 +217,21 @@ validate_prerequisites() {
     if [ ! -f "$IQE_CORE_PATH/pyproject.toml" ]; then
         error "Invalid iqe-core repository (missing pyproject.toml): $IQE_CORE_PATH"
         exit 1
+    fi
+
+    # Pin iqe-core to known-compatible version
+    if [ -n "$IQE_CORE_VERSION" ]; then
+        log "Checking out iqe-core ${IQE_CORE_VERSION}..."
+        if ! git -C "$IQE_CORE_PATH" checkout "$IQE_CORE_VERSION" --quiet 2>/dev/null; then
+            log "Fetching tags and retrying..."
+            git -C "$IQE_CORE_PATH" fetch --tags --quiet 2>/dev/null || true
+            if ! git -C "$IQE_CORE_PATH" checkout "$IQE_CORE_VERSION" --quiet 2>/dev/null; then
+                error "Failed to checkout iqe-core version: $IQE_CORE_VERSION"
+                error "Available tags: $(git -C "$IQE_CORE_PATH" tag --sort=-v:refname | head -5 | tr '\n' ' ')"
+                exit 1
+            fi
+        fi
+        log "iqe-core pinned to ${IQE_CORE_VERSION}"
     fi
     
     # Check iqe-cost-management-plugin repo
@@ -842,7 +860,7 @@ main() {
     if [ -n "${IQE_FILTER}" ]; then
         echo "Filter: ${IQE_FILTER}"
     fi
-    echo "IQE Core: ${IQE_CORE_PATH}"
+    echo "IQE Core: ${IQE_CORE_PATH} (${IQE_CORE_VERSION:-latest})"
     echo "IQE Plugin: ${IQE_PLUGIN_PATH}"
     echo "Venv: ${VENV_PATH}"
     if [ -n "$NISE_VERSION" ]; then
