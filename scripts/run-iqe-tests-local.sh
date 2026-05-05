@@ -130,6 +130,10 @@ cleanup() {
         log "Removing masu route ($MASU_ROUTE_NAME)"
         kubectl delete route "$MASU_ROUTE_NAME" -n "$NAMESPACE" 2>/dev/null || true
     fi
+    if [ -n "${S3_PORT_FORWARD_PID:-}" ]; then
+        log "Stopping S3 port-forward (PID: $S3_PORT_FORWARD_PID)"
+        kill "$S3_PORT_FORWARD_PID" 2>/dev/null || true
+    fi
     rm -f /tmp/iqe-ca-bundle-*.crt 2>/dev/null || true
 }
 
@@ -406,7 +410,7 @@ extract_cluster_config() {
         log_verbose "  S3: using pre-set S3_ENDPOINT=$S3_ENDPOINT (skipping auto-detection)"
     else
         # The masu pod uses in-cluster DNS (e.g. https://s3.openshift-storage.svc).
-        # For local runs we need the external route instead.
+        # For local runs we need the external route or a port-forward.
         if [[ "$s3_internal_endpoint" =~ \.svc(/|$|:) ]] || [[ "$s3_internal_endpoint" =~ \.svc\.cluster ]]; then
             local s3_host s3_svc_name s3_ns s3_route_host
             s3_host=$(echo "$s3_internal_endpoint" | sed -E 's|https?://||; s|[:/].*||')
@@ -416,12 +420,43 @@ extract_cluster_config() {
 
             s3_route_host=$(kubectl get route "$s3_svc_name" -n "$s3_ns" \
                 -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+
+            local s3_resolved=false
             if [ -n "$s3_route_host" ]; then
-                export S3_ENDPOINT="https://$s3_route_host"
-                log_verbose "  S3: resolved in-cluster $s3_internal_endpoint → external $S3_ENDPOINT"
-            else
-                export S3_ENDPOINT="$s3_internal_endpoint"
-                log "WARNING: S3 endpoint $s3_internal_endpoint is in-cluster but no external route found"
+                # Verify the route is actually reachable from this machine
+                if curl -sk --max-time 3 -o /dev/null "https://$s3_route_host/" 2>/dev/null; then
+                    export S3_ENDPOINT="https://$s3_route_host"
+                    log_verbose "  S3: resolved in-cluster $s3_internal_endpoint → external $S3_ENDPOINT"
+                    s3_resolved=true
+                else
+                    log_verbose "  S3: route $s3_route_host exists but is not reachable, trying port-forward"
+                fi
+            fi
+
+            if [ "$s3_resolved" = false ]; then
+                # Fall back to port-forward for S3 access
+                local s3_port_str s3_target_port
+                s3_port_str=$(echo "$s3_internal_endpoint" | grep -oE ':[0-9]+' | tr -d ':')
+                s3_target_port="${s3_port_str:-9000}"
+                local s3_local_port=$((s3_target_port + 10000))
+
+                # Kill any existing port-forward for this port
+                pkill -f "port-forward.*svc/${s3_svc_name}.*${s3_local_port}" 2>/dev/null || true
+                sleep 1
+
+                kubectl port-forward -n "$s3_ns" "svc/${s3_svc_name}" "${s3_local_port}:${s3_target_port}" &
+                S3_PORT_FORWARD_PID=$!
+                sleep 2
+
+                if curl -s --max-time 3 -o /dev/null "http://localhost:${s3_local_port}/minio/health/live" 2>/dev/null; then
+                    export S3_ENDPOINT="http://localhost:${s3_local_port}"
+                    log "  S3: using port-forward localhost:${s3_local_port} → ${s3_svc_name}:${s3_target_port}"
+                else
+                    log "WARNING: S3 port-forward failed, ROS S3 tests may fail"
+                    export S3_ENDPOINT="$s3_internal_endpoint"
+                    kill $S3_PORT_FORWARD_PID 2>/dev/null || true
+                    unset S3_PORT_FORWARD_PID
+                fi
             fi
         else
             export S3_ENDPOINT="$s3_internal_endpoint"
