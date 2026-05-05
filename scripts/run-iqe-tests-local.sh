@@ -25,7 +25,7 @@ source "${SCRIPT_DIR}/lib/iqe-filters.sh"
 # Defaults
 NAMESPACE="${NAMESPACE:-cost-onprem}"
 HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-cost-onprem}"
-IQE_MARKER="${IQE_MARKER:-cost_ocp_on_prem}"
+IQE_MARKER="${IQE_MARKER:-cost_ocp_on_prem and not cost_onprem_blocked}"
 KEYCLOAK_NS="${KEYCLOAK_NS:-keycloak}"
 KEYCLOAK_SECRET_NAME="${KEYCLOAK_SECRET_NAME:-keycloak-client-secret-cost-management-operator}"
 # Local repository paths (can be overridden via env vars)
