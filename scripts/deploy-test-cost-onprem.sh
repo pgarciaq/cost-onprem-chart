@@ -127,6 +127,9 @@ SAVE_VERSIONS="${SAVE_VERSIONS:-false}"
 VERSION_INFO_FILE="${VERSION_INFO_FILE:-version_info.json}"
 LISTENER_CPU_LIMIT="${LISTENER_CPU_LIMIT:-}"
 
+# Keycloak configuration
+KEYCLOAK_NAMESPACE="${KEYCLOAK_NAMESPACE:-keycloak}"
+
 # S4 deployment configuration
 DEPLOY_S4="${DEPLOY_S4:-false}"
 S4_NAMESPACE="${S4_NAMESPACE:-s4-test}"
@@ -456,6 +459,30 @@ deploy_rhbk() {
     fi
 
     log_success "Red Hat Build of Keycloak (RHBK) deployment completed"
+
+    # Configure realm after RHBK is ready
+    setup_keycloak_realm
+}
+
+setup_keycloak_realm() {
+    if [[ "${SKIP_RHBK}" == "true" ]]; then
+        log_verbose "Skipping Keycloak realm setup (RHBK was skipped)"
+        return 0
+    fi
+
+    log_info "Configuring Keycloak realm for Cost Management..."
+
+    local setup_args=("--namespace" "${KEYCLOAK_NAMESPACE}")
+    if [[ "${VERBOSE}" == "true" ]]; then
+        setup_args+=("--verbose")
+    fi
+
+    if ! execute_script "setup-keycloak-realm.sh" "${setup_args[@]}"; then
+        log_warning "Keycloak realm setup failed (non-fatal, may need manual configuration)"
+        return 0
+    fi
+
+    log_success "Keycloak realm configured"
 }
 
 deploy_kafka() {
