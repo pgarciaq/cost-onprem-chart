@@ -156,6 +156,12 @@ spec:
             matchLabels:
               app.kubernetes.io/instance: {{ .Release.Name }}
               app.kubernetes.io/component: gateway
+        {{- if .Values.ui }}
+        # Allow traffic from UI pod (direct proxy with X-Rh-Identity injection)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ui
+        {{- end }}
       ports:
         - protocol: TCP
           port: {{ .Values.ros.api.port }}  # ROS API container port
@@ -195,6 +201,12 @@ spec:
             matchLabels:
               app.kubernetes.io/instance: {{ .Release.Name }}
               app.kubernetes.io/component: housekeeper
+        {{- if .Values.ui }}
+        # Allow traffic from UI pod (direct proxy with X-Rh-Identity injection)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ui
+        {{- end }}
       ports:
         - protocol: TCP
           port: {{ include "cost-onprem.koku.api.port" . }}  # Cost Management API container port
