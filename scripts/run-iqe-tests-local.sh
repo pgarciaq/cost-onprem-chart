@@ -448,7 +448,7 @@ extract_cluster_config() {
                 S3_PORT_FORWARD_PID=$!
                 sleep 2
 
-                if curl -s --max-time 3 -o /dev/null "http://localhost:${s3_local_port}/minio/health/live" 2>/dev/null; then
+                if curl -s --max-time 3 -o /dev/null -w '%{http_code}' "http://localhost:${s3_local_port}/" 2>/dev/null | grep -qE '^[2345]'; then
                     export S3_ENDPOINT="http://localhost:${s3_local_port}"
                     log "  S3: using port-forward localhost:${s3_local_port} → ${s3_svc_name}:${s3_target_port}"
                 else
