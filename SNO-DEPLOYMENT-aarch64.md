@@ -252,6 +252,47 @@ ui:
   replicaCount: 0  # set to 1 if you built a koku-ui arm64 image
 ```
 
+### Critical: objectStorage Configuration (No ODF)
+
+This cluster does **not** have OpenShift Data Foundation (ODF). The chart's default
+`objectStorage.endpoint` is `s3.openshift-storage.svc.cluster.local`, which does not
+exist. You **must** override it to point to the chart-internal MinIO instance:
+
+```yaml
+# In your values override file (e.g., sno-arm64-values.yaml):
+objectStorage:
+  endpoint: "minio.cost-onprem.svc.cluster.local"
+  port: 9000
+  useSSL: false
+```
+
+**Without this override**, all Koku backend pods (listener, ingress, celery workers)
+will fail with `Could not connect to the endpoint URL` when attempting S3 operations
+(storing Parquet files, ROS report shipping, ingress payload upload).
+
+Additionally, the `cost-onprem-storage-credentials` Kubernetes secret must contain
+the correct MinIO credentials. If it contains placeholder values (which happens when
+the chart is installed fresh), patch it:
+
+```bash
+kubectl patch secret cost-onprem-storage-credentials -n cost-onprem -p '{
+  "data": {
+    "access-key": "'$(echo -n minioadmin | base64)'",
+    "secret-key": "'$(echo -n minioadmin123 | base64)'"
+  }
+}'
+
+# Restart all pods that read S3 credentials:
+kubectl rollout restart deploy/cost-onprem-ingress -n cost-onprem
+kubectl rollout restart deploy/cost-onprem-koku-listener -n cost-onprem
+kubectl rollout restart deploy/cost-onprem-koku-masu -n cost-onprem
+kubectl rollout restart deploy -l app.kubernetes.io/component=cost-worker -n cost-onprem
+```
+
+> **Note:** The Helm chart annotates the storage-credentials secret with
+> `helm.sh/resource-policy: keep`, so `helm upgrade` will not overwrite your patched
+> credentials.
+
 ### Install
 
 ```bash
@@ -536,9 +577,10 @@ oc get secret cost-onprem-db-credentials -n cost-onprem -o jsonpath='{.data.post
 
 | Field | Value |
 |-------|-------|
-| Endpoint | `http://minio.cost-onprem.svc:9000` |
+| Endpoint (in-cluster) | `http://minio.cost-onprem.svc.cluster.local:9000` |
+| Endpoint (external) | `https://minio-cost-onprem.apps.sno.karmalabs.corp` |
 | Access key | `minioadmin` |
-| Secret key | stored in `cost-onprem-storage-credentials` secret |
+| Secret key | `minioadmin123` (stored in `cost-onprem-storage-credentials` secret) |
 
 ---
 
@@ -554,6 +596,8 @@ oc get secret cost-onprem-db-credentials -n cost-onprem -o jsonpath='{.data.post
 | Listener `Init:ImagePullBackOff` for `ubi9/ubi-minimal` | Red Hat registry unreachable | Patch init container `imagePullPolicy` to `IfNotPresent` |
 | All costs `0.00` but usage non-zero | No cost model rates applied | Create/update cost model via API with actual rates |
 | Kruize experiments table empty (Phase 6) | Native engine stores in `costonprem_ros.recommendation_sets`, not `costonprem_kruize` | Expected behavior — check `recommendation_sets` instead |
+| Listener/Ingress `Could not connect to the endpoint URL: s3.openshift-storage.svc.cluster.local` | Default `objectStorage.endpoint` assumes ODF, but this cluster has no ODF | Set `objectStorage.endpoint: minio.cost-onprem.svc.cluster.local` in Helm values (see Step 4) |
+| Listener/Ingress `InvalidAccessKeyId` or `SignatureDoesNotMatch` | `cost-onprem-storage-credentials` secret has placeholder values | Patch secret with `minioadmin`/`minioadmin123` and restart deployments (see Step 4) |
 | IQE `InvalidAccessKeyId` from MinIO | `cost-onprem-storage-credentials` has placeholder values | Patch secret with `minioadmin` (see "Running IQE Tests" section) |
 | IQE `RecursionError` in `ssl.py` | `truststore` + `botocore` SSLContext conflict | Use `pgarciaq-truststore-recursion-fix` branch of iqe-cost-management-plugin |
 | IQE Keycloak `404 Not Found` for realm | Script defaults to `cost-management` realm but cluster has `kubernetes` | Set `KEYCLOAK_REALM=kubernetes` |
