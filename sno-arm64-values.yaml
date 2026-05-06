@@ -1,0 +1,175 @@
+# SNO aarch64 test cluster - custom image overrides
+# Cluster: sno.karmalabs.corp (OCP 4.21 aarch64)
+# Uses internal OCP image registry
+
+global:
+  clusterDomain: "apps.sno.karmalabs.corp"
+  storageClass: "lvms-vg1"
+  pullPolicy: IfNotPresent
+
+# Custom arm64 ROS image (built from ros-ocp-backend phase6 branch)
+ros:
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
+    tag: "phase6"
+    pullPolicy: IfNotPresent
+
+# Custom arm64 Koku image
+costManagement:
+  api:
+    enabled: true
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku
+      tag: "latest"
+      pullPolicy: IfNotPresent
+  celery:
+    pollingTimer: 60
+    workers:
+      default:
+        replicas: 2
+        concurrency: 8
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+      priority:
+        replicas: 2
+        concurrency: 8
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "3Gi"
+      summary:
+        replicas: 2
+        concurrency: 8
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+          limits:
+            cpu: "4"
+            memory: "4Gi"
+      ocp:
+        replicas: 2
+        concurrency: 8
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+          limits:
+            cpu: "4"
+            memory: "3Gi"
+      costModel:
+        replicas: 2
+        concurrency: 8
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+  listener:
+    replicas: 2
+
+# Custom arm64 ingress image
+ingress:
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-ingress-go
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+# Stock multi-arch PostgreSQL
+database:
+  server:
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/postgresql
+      tag: "16"
+    storage:
+      size: "20Gi"
+  ros:
+    storage:
+      size: "5Gi"
+  kruize:
+    storage:
+      size: "5Gi"
+  sources:
+    storage:
+      size: "5Gi"
+
+# Kruize (Autotune) - ENABLED for testing both engines
+kruize:
+  enabled: true
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/autotune
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+# Kafka
+kafka:
+  bootstrapServers: "cost-onprem-kafka-kafka-bootstrap.kafka.svc:9092"
+
+# Keycloak/JWT
+jwtAuth:
+  keycloak:
+    installed: true
+    url: "https://keycloak-keycloak.apps.sno.karmalabs.corp"
+    namespace: "keycloak"
+    serviceName: "keycloak-service"
+    realm: "kubernetes"
+    client:
+      id: "cost-management-ui"
+    audiences:
+      - cost-management-operator
+      - cost-management-ui
+      - account
+    tls:
+      insecureSkipVerify: true
+  envoy:
+    routeTimeout: "300s"
+    routePerTryTimeout: "150s"
+
+# Valkey - custom arm64 image
+valkey:
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/valkey
+    tag: "8"
+    pullPolicy: IfNotPresent
+  persistence:
+    storageClassName: "lvms-vg1"
+
+# Routes
+gatewayRoute:
+  enabled: true
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# Resources for SNO (generous since 64 cores / 128 GiB)
+resources:
+  application:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+  kruize:
+    requests:
+      memory: "1Gi"
+      cpu: "200m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+
+# Skip UI (no arm64 image built)
+ui:
+  replicaCount: 0
