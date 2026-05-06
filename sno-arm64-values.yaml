@@ -111,6 +111,12 @@ kruize:
     tag: "latest"
     pullPolicy: IfNotPresent
 
+# S3/MinIO - chart-internal MinIO (no ODF on this cluster)
+objectStorage:
+  endpoint: "minio.cost-onprem.svc.cluster.local"
+  port: 9000
+  useSSL: false
+
 # Kafka
 kafka:
   bootstrapServers: "cost-onprem-kafka-kafka-bootstrap.kafka.svc:9092"
