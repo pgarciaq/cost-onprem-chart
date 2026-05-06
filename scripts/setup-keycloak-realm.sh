@@ -294,10 +294,12 @@ verify_token() {
 
 log "Setting up Keycloak realm '${KEYCLOAK_REALM}' in namespace '${KEYCLOAK_NS}'..."
 
-# Verify Keycloak pod is running
+# Verify Keycloak pod is running (try both common label patterns)
 if ! kubectl get pods -n "$KEYCLOAK_NS" -l app.kubernetes.io/name=keycloak --field-selector=status.phase=Running -o name 2>/dev/null | grep -q pod; then
-    error "No running Keycloak pod found in namespace '$KEYCLOAK_NS'"
-    exit 1
+    if ! kubectl get pods -n "$KEYCLOAK_NS" -l app=keycloak --field-selector=status.phase=Running -o name 2>/dev/null | grep -q pod; then
+        error "No running Keycloak pod found in namespace '$KEYCLOAK_NS'"
+        exit 1
+    fi
 fi
 
 CLIENT_SECRET=$(get_client_secret)
