@@ -2,7 +2,7 @@
 
 > **Living Document**: This document tracks tests that are skipped when running IQE tests against on-prem Cost Management deployments. It should be updated as issues are resolved or new skip patterns are identified.
 >
-> **Last Updated**: 2026-03-25
+> **Last Updated**: 2026-05-10
 
 ## Overview
 
@@ -198,6 +198,74 @@ handled in seconds rather than 8+ hours.
 **Problem**: Tests expect `tag:volume=stor_node-1` which NISE doesn't generate.
 
 **Filter**: `(volume and tag and exact_match)`
+
+---
+
+### OCP Tag Fixture Scope Mismatch (Resolved)
+
+**Status**: ✅ Resolved (2026-05-10)
+**Impact**: ~20+ tests using `cost_tag_list` or `cost_tag_list_storage` fixtures
+**Fix**: [IQE plugin commit `67be079`](https://gitlab.cee.redhat.com/pgarciaq/iqe-cost-management-plugin/-/commit/67be0794bc) on branch `pgarciaq-truststore-recursion-fix`
+
+**Symptom**: Tests fail during fixture setup with:
+```
+pytest.fail("Unable to get a tag key with more than 2 values in OCP tag report")
+```
+This error cascades to all tests that depend on `cost_tag_list` or
+`cost_tag_list_storage`, including `test_api_ocp_compute_tag_validate_total`,
+`test_api_ocp_compute_tag_validate`, `test_api_ocp_compute_tag_multiple_validate_total`,
+and storage tag tests.
+
+**Root cause — pytest fixture scope mismatch**:
+
+The `cost_tag_list` and `cost_tag_list_storage` fixtures were `module`-scoped
+but depend on data that is ingested by `function`-scoped fixtures (e.g.
+`cost_ocp_for_aws_multi_sources_last_month`). Pytest evaluates wider-scoped
+fixtures first:
+
+```
+Session fixtures  →  Module fixtures  →  Function fixtures
+   (tags setup)      (cost_tag_list)     (data ingestion)
+                          ↑                    ↑
+                    Queries tags API     Ingests OCP data
+                    but NO data yet!     (too late)
+```
+
+On cloud IQE environments (console.redhat.com), this was masked because data
+persists across test sessions — `cost_tag_list` found leftover data from prior
+runs. On fresh on-prem deployments, no residual data exists, so the tags API
+returns an empty response.
+
+**Diagnosis** (manual end-to-end test on Apollo SNO cluster):
+
+A standalone diagnostic was run outside the IQE framework to isolate whether
+the problem was in the data pipeline or the test fixtures:
+
+1. Created a fresh OCP source and schema (`orgdiag123456`)
+2. Enabled tags via Masu API (`app`, `volume`, `node`, `environment`)
+3. Generated NISE data using `ocp_report_advanced.yml` (10 distinct `app` values)
+4. Uploaded tarball via ingress API, waited for processing
+5. Verified `reporting_ocpusagelineitem_daily_summary`: **220 rows**, 10 distinct `app` labels
+6. Verified `reporting_ocpusagepodlabel_summary`: populated, `app` with 10 values
+7. Queried `/tags/openshift/?filter[type]=pod`: returned `app` with 10 values, `node` with 3
+
+**Conclusion**: The data pipeline works correctly end-to-end. The problem is
+purely a fixture evaluation ordering issue.
+
+**Contributing factor — API time window default**: The Koku tags API defaults
+to `time_scope_value=-10` (last 10 days) when not specified. If NISE generates
+data with `start_date: last_month`, some data may fall outside this window.
+The function-scoped fix resolves this by ensuring data is fresh when queried.
+
+**Fix applied**:
+
+| File | Change |
+|------|--------|
+| `tag_fixtures.py` | `cost_tag_list`: `scope="module"` → `scope="function"` + docstring |
+| `tag_fixtures.py` | `cost_tag_list_storage`: `scope="module"` → `scope="function"` + docstring |
+
+This is safe because both fixtures are lightweight (single API call each),
+are used by function-scoped tests, and re-evaluating per test ensures data freshness.
 
 ---
 
@@ -407,6 +475,7 @@ SKIP_GPU_TESTS=false ./scripts/run-iqe-tests.sh --filter "test_api_ocp_gpu"
 | `SKIP_DATE_RANGE_TESTS` | ~228 | ❌ Data limit | — |
 | `SKIP_COST_DISTRIBUTION_TESTS` | 5 | ❌ Blocked | COST-7179 |
 | `SKIP_TAG_TESTS` | ~6 | ❌ NISE config | — |
+| Tag fixture scope mismatch | ~20+ | ✅ Resolved | IQE plugin fix |
 | `SKIP_ROS_TESTS` | 3 | ✅ Resolved | — |
 | `SKIP_SOURCE_CRUD_TESTS` | 1 | ❌ Blocked | FLPATH-3423 |
 | `SKIP_TAG_RATES_TESTS` | 1 | ❌ Blocked | COST-7179 |
