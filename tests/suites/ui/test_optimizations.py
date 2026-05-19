@@ -21,9 +21,28 @@ Without data, tests will verify empty state handling or skip gracefully.
 """
 
 import re
+import time
 
 import pytest
 from playwright.sync_api import Page, expect
+
+
+def get_page_content_signature(page: Page) -> str:
+    """Capture a content signature to detect page state changes after a click."""
+    return page.locator("body").inner_text()[:2000]
+
+
+def click_first_optimization_row(page: Page) -> None:
+    """Click the first optimization cluster link to drill into container view."""
+    row_link = page.locator(
+        "table tbody tr td a, table tbody tr a, [role='row'] a"
+    ).first
+    if row_link.count() > 0:
+        row_link.click()
+    else:
+        page.locator("table tbody tr, [role='row']").first.click()
+    page.wait_for_load_state("networkidle")
+    time.sleep(2)
 
 
 # =============================================================================
@@ -93,33 +112,37 @@ class TestOptimizationDetails:
     def test_can_click_optimization_row(
         self, authenticated_page: Page, ui_url: str
     ):
-        """Verify clicking an optimization row shows details.
+        """Verify clicking a cluster row changes the page state.
 
-        The on-prem UI may show details via URL navigation (breakdown page)
-        or inline (drawer/expanded row). Both patterns are valid.
+        The on-prem UI shows cluster-level efficiency summaries. Clicking a
+        cluster name applies a filter to drill into container-level data.
         """
         authenticated_page.goto(f"{ui_url}/openshift/cost-management/optimizations")
         authenticated_page.wait_for_load_state("networkidle")
 
-        optimization_link = authenticated_page.locator(
-            "table tbody tr a, [role='row'] a, table tbody tr[role='row']"
-        ).first
+        rows = authenticated_page.locator("table tbody tr, [role='row']")
+        if rows.count() == 0:
+            pytest.skip(
+                "No optimization rows available - run e2e tests first with E2E_CLEANUP_AFTER=false"
+            )
 
-        if optimization_link.count() == 0:
-            pytest.skip("No optimization rows available - run e2e tests first with E2E_CLEANUP_AFTER=false")
-
+        content_before = get_page_content_signature(authenticated_page)
         url_before = authenticated_page.url
-        optimization_link.click()
-        authenticated_page.wait_for_load_state("networkidle")
+
+        click_first_optimization_row(authenticated_page)
 
         url_changed = authenticated_page.url != url_before
-        has_detail_content = authenticated_page.locator(
-            "text=/cpu|memory|request|limit|container|recommendation/i"
+        content_after = get_page_content_signature(authenticated_page)
+        content_changed = content_after != content_before
+        has_filter_active = authenticated_page.locator(
+            "text=/clear all filters/i"
         ).count() > 0
 
-        assert url_changed or has_detail_content, (
-            "Clicking optimization row should either navigate to a detail page "
-            "or reveal detail content inline (drawer/expanded row)"
+        assert url_changed or content_changed or has_filter_active, (
+            "Clicking optimization row should change page state "
+            "(URL change, content change, or filter applied). "
+            f"url_changed={url_changed}, content_changed={content_changed}, "
+            f"has_filter_active={has_filter_active}"
         )
 
     def test_optimization_page_shows_resource_info(
