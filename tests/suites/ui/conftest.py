@@ -250,6 +250,25 @@ def _login_context(
     return context
 
 
+@pytest.fixture(scope="session")
+def ui_requires_oauth(browser: Browser, ui_url: str, keycloak_config: KeycloakConfig) -> bool:
+    """Detect whether the UI enforces OAuth (redirects to Keycloak on access).
+
+    Returns True if visiting the UI results in a Keycloak redirect,
+    False if the UI serves content directly (standalone mode).
+    """
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        ignore_https_errors=True,
+    )
+    page = context.new_page()
+    page.goto(ui_url, wait_until="domcontentloaded")
+    url = page.url
+    page.close()
+    context.close()
+    return keycloak_config.realm in url
+
+
 def _get_reports_base_dir() -> str:
     """Get the base reports directory."""
     return os.path.join(
@@ -278,11 +297,14 @@ def authenticated_context(
     browser: Browser,
     ui_url: str,
     keycloak_config: KeycloakConfig,
+    ui_requires_oauth: bool,
     request,
 ) -> Generator[BrowserContext, None, None]:
     """Create a browser context with authenticated session.
-    
-    Performs Keycloak login and stores the session for the test.
+
+    If the UI enforces OAuth, performs Keycloak login and stores the session.
+    In standalone mode (no OAuth), returns a plain context since the app is
+    already accessible without authentication.
     
     Credentials:
         Default credentials are admin/admin, configurable via environment variables:
@@ -327,34 +349,35 @@ def authenticated_context(
     if TRACE_MODE != "off":
         context.tracing.start(screenshots=True, snapshots=True, sources=True)
     
-    page = context.new_page()
-    
-    # Navigate to UI (will redirect to Keycloak)
-    page.goto(ui_url)
-    
-    # Wait for Keycloak login page
-    page.wait_for_url(f"**/{keycloak_config.realm}/**", timeout=10000)
-    
-    # Fill login form (see docstring for security notes on these defaults)
-    username = os.environ.get("TEST_UI_USERNAME", "admin")
-    password = os.environ.get("TEST_UI_PASSWORD", "admin")
-    
-    page.fill('input[name="username"]', username)
-    page.fill('input[name="password"]', password)
-    page.click('input[type="submit"], button[type="submit"]')
-    
-    # Wait for redirect back to UI host (any path)
-    parsed = urlparse(ui_url)
-    ui_host_pattern = f"**{parsed.netloc}**"
-    page.wait_for_url(ui_host_pattern, timeout=30000)
-    
-    # Verify the OAuth2 callback completed and cookies are set
-    _assert_callback_completed(page, context, ui_url)
-    
-    # Wait for page to fully load
-    page.wait_for_load_state("networkidle")
-    
-    page.close()
+    if ui_requires_oauth:
+        page = context.new_page()
+
+        # Navigate to UI (will redirect to Keycloak)
+        page.goto(ui_url)
+
+        # Wait for Keycloak login page
+        page.wait_for_url(f"**/{keycloak_config.realm}/**", timeout=10000)
+
+        # Fill login form (see docstring for security notes on these defaults)
+        username = os.environ.get("TEST_UI_USERNAME", "admin")
+        password = os.environ.get("TEST_UI_PASSWORD", "admin")
+
+        page.fill('input[name="username"]', username)
+        page.fill('input[name="password"]', password)
+        page.click('input[type="submit"], button[type="submit"]')
+
+        # Wait for redirect back to UI host (any path)
+        parsed = urlparse(ui_url)
+        ui_host_pattern = f"**{parsed.netloc}**"
+        page.wait_for_url(ui_host_pattern, timeout=30000)
+
+        # Verify the OAuth2 callback completed and cookies are set
+        _assert_callback_completed(page, context, ui_url)
+
+        # Wait for page to fully load
+        page.wait_for_load_state("networkidle")
+
+        page.close()
     
     yield context
     
