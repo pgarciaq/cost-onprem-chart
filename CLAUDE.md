@@ -162,6 +162,19 @@ kubectl get pods -n cost-onprem -l app.kubernetes.io/component=database
 kubectl logs -n cost-onprem -l app.kubernetes.io/component=ros-processor --tail=50
 ```
 
+### E2E Tests Fail with "Received unexpected OCP report"
+**Root Cause:** `org_id` mismatch between how test sources are registered and how
+the Koku listener looks them up. Koku prepends `org` to the JWT `org_id` claim to
+form the tenant schema. If `org_id` in the JWT is `"1234567"`, the schema becomes
+`org1234567`. Test fixtures must use bare `"1234567"`, NOT `"org1234567"`.
+**Fix:** The `org_id` fixture in `tests/conftest.py` defaults to `"1234567"`.
+
+### UI Tests Fail with "waiting for navigation to \*\*/kubernetes/\*\*"
+**Root Cause:** UI is deployed in standalone mode (nginx without oauth2-proxy).
+Tests expecting Keycloak redirect will timeout.
+**Fix:** Tests auto-detect standalone mode via `ui_requires_oauth` fixture and
+skip OAuth-dependent tests. No action needed.
+
 ### Helm Upgrade "field is immutable"
 **Root Cause:** Label changes require fresh install.
 ```bash

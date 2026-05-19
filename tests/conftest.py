@@ -709,7 +709,7 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
         ], check=False)
         
         if not admin_pass_result.stdout.strip():
-            return "org1234567"
+            return "1234567"
         
         admin_password = base64.b64decode(admin_pass_result.stdout.strip()).decode("utf-8")
         
@@ -727,7 +727,7 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
         )
         
         if token_response.status_code != 200:
-            return "org1234567"
+            return "1234567"
         
         admin_token = token_response.json().get("access_token")
         
@@ -747,9 +747,9 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
                 if org_id_value:
                     return org_id_value
         
-        return "org1234567"
+        return "1234567"
     except Exception:
-        return "org1234567"
+        return "1234567"
 
 
 # =============================================================================
@@ -822,7 +822,7 @@ def _rbac_bootstrap(cluster_config: ClusterConfig, keycloak_config: KeycloakConf
         return
 
     # Resolve org_id from the token claims or fall back to default
-    org_id_value = claims.get("org_id") or "org1234567"
+    org_id_value = claims.get("org_id") or "1234567"
     acct_number = claims.get("account_number") or "1234567"
 
     bootstrap_script = render_bootstrap_script(sa_usernames, org_id_value, acct_number)

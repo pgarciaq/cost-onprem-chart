@@ -5,6 +5,9 @@ These tests validate the OAuth/OIDC logout flow through the browser,
 ensuring users are properly logged out via Keycloak and the SSO session
 is fully terminated.
 
+Tests are automatically skipped when the UI is deployed in standalone
+mode (no OAuth proxy) since logout is handled differently.
+
 Verifies: FLPATH-2966 - Add logout to the UI
 """
 
@@ -21,56 +24,53 @@ class TestLogoutFlow:
 
     @pytest.mark.smoke
     def test_logout_redirects_to_login(
-        self, authenticated_page: Page, ui_url: str, keycloak_config
+        self, authenticated_page: Page, ui_url: str, keycloak_config, ui_requires_oauth
     ):
         """Verify /logout redirects through oauth2-proxy sign_out to Keycloak login."""
+        if not ui_requires_oauth:
+            pytest.skip("UI is in standalone mode (no OAuth logout flow)")
+
         authenticated_page.goto(ui_url)
         authenticated_page.wait_for_load_state("networkidle")
 
-        # Navigate to logout endpoint
         authenticated_page.goto(f"{ui_url}/logout")
 
-        # Should ultimately land on the Keycloak login page
         authenticated_page.wait_for_url(
             f"**/{keycloak_config.realm}/**", timeout=15000
         )
         expect(authenticated_page).to_have_url(
             re.compile(f".*{keycloak_config.realm}.*")
         )
-
-        # Login form should be visible (session fully terminated)
         expect(authenticated_page.locator('input[name="username"]')).to_be_visible()
 
     def test_session_invalidated_after_logout(
-        self, authenticated_page: Page, ui_url: str, keycloak_config
+        self, authenticated_page: Page, ui_url: str, keycloak_config, ui_requires_oauth
     ):
-        """Verify accessing a protected page after logout requires re-authentication.
+        """Verify accessing a protected page after logout requires re-authentication."""
+        if not ui_requires_oauth:
+            pytest.skip("UI is in standalone mode (no OAuth logout flow)")
 
-        This confirms the Keycloak SSO session is destroyed (via id_token_hint),
-        not just the local oauth2-proxy cookie.
-        """
         authenticated_page.goto(ui_url)
         authenticated_page.wait_for_load_state("networkidle")
 
-        # Logout
         authenticated_page.goto(f"{ui_url}/logout")
         authenticated_page.wait_for_url(
             f"**/{keycloak_config.realm}/**", timeout=15000
         )
 
-        # Now try accessing a protected page directly
         authenticated_page.goto(ui_url)
-
-        # Must redirect to Keycloak login — NOT auto-authenticate
         authenticated_page.wait_for_url(
             f"**/{keycloak_config.realm}/**", timeout=15000
         )
         expect(authenticated_page.locator('input[name="username"]')).to_be_visible()
 
     def test_oauth_cookie_cleared_after_logout(
-        self, authenticated_page: Page, ui_url: str, keycloak_config
+        self, authenticated_page: Page, ui_url: str, keycloak_config, ui_requires_oauth
     ):
         """Verify the _oauth2_proxy session cookie is removed after logout."""
+        if not ui_requires_oauth:
+            pytest.skip("UI is in standalone mode (no OAuth cookies)")
+
         authenticated_page.goto(ui_url)
         authenticated_page.wait_for_load_state("networkidle")
 
@@ -100,9 +100,12 @@ class TestLogoutFlow:
         )
 
     def test_back_button_after_logout_does_not_restore_session(
-        self, authenticated_page: Page, ui_url: str, keycloak_config
+        self, authenticated_page: Page, ui_url: str, keycloak_config, ui_requires_oauth
     ):
         """Verify pressing back after logout does not restore an authenticated session."""
+        if not ui_requires_oauth:
+            pytest.skip("UI is in standalone mode (no OAuth logout flow)")
+
         authenticated_page.goto(ui_url)
         authenticated_page.wait_for_load_state("networkidle")
 
@@ -114,7 +117,6 @@ class TestLogoutFlow:
         authenticated_page.go_back()
         authenticated_page.wait_for_load_state("networkidle")
 
-        # Should still be on the login page or redirected back to it
         authenticated_page.wait_for_url(
             f"**/{keycloak_config.realm}/**", timeout=15000
         )
@@ -132,26 +134,26 @@ class TestLogoutBoundary:
         """Verify /logout from an unauthenticated session does not produce a 500."""
         response = page.goto(f"{ui_url}/logout")
 
-        # Should not be a server error
         assert response is not None
         assert response.status < 500, (
             f"Unauthenticated /logout returned server error: {response.status}"
         )
 
     def test_double_logout_no_error(
-        self, authenticated_page: Page, ui_url: str, keycloak_config
+        self, authenticated_page: Page, ui_url: str, keycloak_config, ui_requires_oauth
     ):
         """Verify logging out twice does not produce an error."""
+        if not ui_requires_oauth:
+            pytest.skip("UI is in standalone mode (no OAuth logout flow)")
+
         authenticated_page.goto(ui_url)
         authenticated_page.wait_for_load_state("networkidle")
 
-        # First logout
         authenticated_page.goto(f"{ui_url}/logout")
         authenticated_page.wait_for_url(
             f"**/{keycloak_config.realm}/**", timeout=15000
         )
 
-        # Second logout while already logged out
         response = authenticated_page.goto(f"{ui_url}/logout")
         assert response is not None
         assert response.status < 500, (

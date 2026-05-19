@@ -4,11 +4,28 @@ This guide explains how to test the UI authentication flow with Keycloak on Open
 
 ## Overview
 
-The UI uses oauth2-proxy as a sidecar to authenticate users via Keycloak OIDC:
+The UI supports two deployment modes:
+
+### OAuth Mode (with oauth2-proxy)
 
 ```
 Browser → UI Route → oauth2-proxy → Keycloak Login → JWT Token → Session Cookie
 ```
+
+Requires oauth2-proxy sidecar and Keycloak configuration. Login/logout flow tests
+validate the full OIDC cycle.
+
+### Standalone Mode (no OAuth)
+
+```
+Browser → UI Route → nginx → Static SPA (API calls get hardcoded X-Rh-Identity)
+```
+
+Used for development/testing without Keycloak. The UI is served directly by nginx
+with a pre-configured identity header for API calls. No login is required.
+
+**The test suite auto-detects the deployment mode** and skips OAuth-specific tests
+(login flow, logout flow) when running against a standalone deployment.
 
 ## Prerequisites
 

@@ -40,10 +40,19 @@ def browser(playwright_instance: Playwright) -> Generator[Browser, None, None]:
     headless = os.environ.get("PLAYWRIGHT_HEADLESS", "true").lower() == "true"
     
     browser_launcher = getattr(playwright_instance, browser_type)
-    browser = browser_launcher.launch(
-        headless=headless,
-        slow_mo=int(os.environ.get("PLAYWRIGHT_SLOW_MO", "0")),
-    )
+    launch_kwargs = {
+        "headless": headless,
+        "slow_mo": int(os.environ.get("PLAYWRIGHT_SLOW_MO", "0")),
+    }
+    executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    if not executable:
+        import shutil
+        executable = shutil.which("chromium-browser") or shutil.which("chromium")
+    if executable:
+        launch_kwargs["executable_path"] = executable
+        launch_kwargs.setdefault("args", [])
+        launch_kwargs["args"].append("--no-sandbox")
+    browser = browser_launcher.launch(**launch_kwargs)
     yield browser
     browser.close()
 
@@ -99,42 +108,56 @@ def keycloak_login_url(keycloak_config: KeycloakConfig) -> str:
 # =============================================================================
 
 
-@pytest.fixture(scope="function")
-def authenticated_context(
-    browser: Browser,
-    ui_url: str,
-    keycloak_config: KeycloakConfig,
-) -> Generator[BrowserContext, None, None]:
-    """Create a browser context with authenticated session.
-    
-    Performs Keycloak login and stores the session for the test.
-    Uses test/test credentials by default (configurable via env vars).
+@pytest.fixture(scope="session")
+def ui_requires_oauth(browser: Browser, ui_url: str, keycloak_config: KeycloakConfig) -> bool:
+    """Detect whether the UI enforces OAuth (redirects to Keycloak on access).
+
+    Returns True if visiting the UI results in a Keycloak redirect,
+    False if the UI serves content directly (standalone mode).
     """
     context = browser.new_context(
         viewport={"width": 1920, "height": 1080},
         ignore_https_errors=True,
     )
-    
     page = context.new_page()
-    
-    # Navigate to UI (will redirect to Keycloak)
-    page.goto(ui_url)
-    
-    # Wait for Keycloak login page
-    page.wait_for_url(f"**/{keycloak_config.realm}/**", timeout=10000)
-    
-    # Fill login form
-    username = os.environ.get("TEST_UI_USERNAME", "admin")
-    password = os.environ.get("TEST_UI_PASSWORD", "admin")
-    
-    page.fill('input[name="username"]', username)
-    page.fill('input[name="password"]', password)
-    page.click('input[type="submit"], button[type="submit"]')
-    
-    # Wait for redirect back to UI
-    page.wait_for_url(f"{ui_url}**", timeout=15000)
-    
+    page.goto(ui_url, wait_until="domcontentloaded")
+    url = page.url
     page.close()
+    context.close()
+    return keycloak_config.realm in url
+
+
+@pytest.fixture(scope="function")
+def authenticated_context(
+    browser: Browser,
+    ui_url: str,
+    keycloak_config: KeycloakConfig,
+    ui_requires_oauth: bool,
+) -> Generator[BrowserContext, None, None]:
+    """Create a browser context with authenticated session.
+    
+    If the UI enforces OAuth, performs Keycloak login.
+    If the UI is in standalone mode (no OAuth), returns a plain context
+    since the app is already accessible without authentication.
+    """
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        ignore_https_errors=True,
+    )
+
+    if ui_requires_oauth:
+        page = context.new_page()
+        page.goto(ui_url)
+        page.wait_for_url(f"**/{keycloak_config.realm}/**", timeout=10000)
+
+        username = os.environ.get("TEST_UI_USERNAME", "admin")
+        password = os.environ.get("TEST_UI_PASSWORD", "admin")
+
+        page.fill('input[name="username"]', username)
+        page.fill('input[name="password"]', password)
+        page.click('input[type="submit"], button[type="submit"]')
+        page.wait_for_url(f"{ui_url}**", timeout=15000)
+        page.close()
     
     yield context
     context.close()
