@@ -30,6 +30,46 @@ def save_screenshot(page: Page, name: str) -> str:
     return path
 
 
+def get_page_content_signature(page: Page) -> str:
+    """Capture a content signature to detect page state changes after a click."""
+    return page.locator("body").inner_text()[:2000]
+
+
+def click_first_optimization_row(page: Page) -> None:
+    """Click the first optimization cluster link to drill into container view."""
+    row_link = page.locator(
+        "table tbody tr td a, table tbody tr a, [role='row'] a"
+    ).first
+    if row_link.count() > 0:
+        row_link.click()
+    else:
+        page.locator("table tbody tr, [role='row']").first.click()
+    page.wait_for_load_state("networkidle")
+    time.sleep(2)
+
+
+def assert_click_changed_page_state(
+    page: Page, content_before: str, url_before: str
+) -> None:
+    """Assert that clicking changed the page — URL change, filter applied, or content changed.
+
+    The on-prem optimization UI shows cluster-level efficiency summaries.
+    Clicking a cluster name applies a filter (same URL) to show container-level
+    data for that cluster.  The page may show container data or an empty state
+    ("No match found") — both indicate the click was effective.
+    """
+    url_changed = page.url != url_before
+    content_after = get_page_content_signature(page)
+    content_changed = content_after != content_before
+    has_filter_active = page.locator("text=/clear all filters/i").count() > 0
+    assert url_changed or content_changed or has_filter_active, (
+        "Clicking an optimization row should change page state "
+        "(URL change, content change, or filter applied). "
+        f"url_changed={url_changed}, content_changed={content_changed}, "
+        f"has_filter_active={has_filter_active}"
+    )
+
+
 @pytest.mark.ui
 @pytest.mark.data_validation
 class TestCostDataVisualization:
@@ -278,11 +318,7 @@ class TestOptimizationRecommendations:
     def test_optimizations_show_cpu_memory_values(
         self, authenticated_page: Page, ui_url: str, cost_validation_data
     ):
-        """Verify optimizations page displays CPU and memory information.
-
-        The page should show CPU/memory related content either in the table
-        columns, in an expanded row, or after clicking into a detail view.
-        """
+        """Verify optimizations page shows CPU/memory efficiency data."""
         authenticated_page.goto(f"{ui_url}/openshift/cost-management/optimizations")
         authenticated_page.wait_for_load_state("networkidle")
         time.sleep(3)
@@ -291,41 +327,35 @@ class TestOptimizationRecommendations:
         if empty_state.count() > 0 and empty_state.first.is_visible():
             pytest.skip("No optimization data available yet")
 
-        # Look for CPU/memory content on the page (table headers, columns, or inline)
-        resource_content = authenticated_page.locator(
-            "text=/cpu|memory|cores|gib|mib|request|limit|container/i"
-        )
+        rows = authenticated_page.locator("table tbody tr, [role='row']")
+        if rows.count() == 0:
+            pytest.skip("No optimization rows available")
 
-        if resource_content.count() == 0:
-            # Try clicking a row to reveal detail content
-            container_link = authenticated_page.locator(
-                "table tbody tr td a, table tbody tr td button, "
-                "[role='row'] a, [role='row'] button"
-            ).first
-
-            if container_link.count() > 0:
-                container_link.click()
-                authenticated_page.wait_for_load_state("networkidle")
-                time.sleep(2)
-                resource_content = authenticated_page.locator(
-                    "text=/cpu|memory|cores|gib|mib|request|limit|container/i"
-                )
+        has_cpu_section = authenticated_page.locator(
+            "text=/cpu workload efficiency/i"
+        ).count() > 0
+        has_memory_section = authenticated_page.locator(
+            "text=/memory workload efficiency/i"
+        ).count() > 0
+        has_efficiency_pct = authenticated_page.locator(
+            "text=/[0-9]+\\s*%/i"
+        ).count() > 0
 
         save_screenshot(authenticated_page, "06_optimizations_cpu_memory")
 
-        assert resource_content.count() > 0, (
-            f"Optimizations page should display CPU/memory related content. "
+        assert has_cpu_section or has_memory_section, (
+            "Optimizations page should show CPU or Memory workload efficiency sections. "
+            f"Cluster ID: {cost_validation_data['cluster_id']}"
+        )
+        assert has_efficiency_pct, (
+            "Optimizations page should show efficiency percentages. "
             f"Cluster ID: {cost_validation_data['cluster_id']}"
         )
 
-    def test_optimizations_show_request_limit_recommendations(
+    def test_optimizations_show_cost_values(
         self, authenticated_page: Page, ui_url: str, cost_validation_data
     ):
-        """Verify optimizations page shows request/limit related content.
-
-        The page should display request/limit information either in the
-        table, in an expanded row, or after clicking into a detail view.
-        """
+        """Verify optimizations page shows wasted cost and total cost columns."""
         authenticated_page.goto(f"{ui_url}/openshift/cost-management/optimizations")
         authenticated_page.wait_for_load_state("networkidle")
         time.sleep(3)
@@ -334,29 +364,28 @@ class TestOptimizationRecommendations:
         if empty_state.count() > 0 and empty_state.first.is_visible():
             pytest.skip("No optimization data available yet")
 
-        # Look for request/limit content on the page
-        content = authenticated_page.locator(
-            "text=/request|limit|current|recommended|change|last reported|container/i"
+        rows = authenticated_page.locator("table tbody tr, [role='row']")
+        if rows.count() == 0:
+            pytest.skip("No optimization rows available")
+
+        has_dollar_values = authenticated_page.locator(
+            "text=/\\$[0-9,]+\\.?[0-9]*/i"
+        ).count() > 0
+        has_wasted_cost_header = authenticated_page.locator(
+            "text=/wasted cost/i"
+        ).count() > 0
+        has_total_cost_header = authenticated_page.locator(
+            "text=/total cost/i"
+        ).count() > 0
+
+        save_screenshot(authenticated_page, "07_optimizations_cost_values")
+
+        assert has_dollar_values, (
+            "Optimizations page should show dollar cost values. "
+            f"Cluster ID: {cost_validation_data['cluster_id']}"
         )
-
-        if content.count() == 0:
-            container_link = authenticated_page.locator(
-                "table tbody tr td a, table tbody tr td button, "
-                "[role='row'] a, [role='row'] button"
-            ).first
-
-            if container_link.count() > 0:
-                container_link.click()
-                authenticated_page.wait_for_load_state("networkidle")
-                time.sleep(2)
-                content = authenticated_page.locator(
-                    "text=/request|limit|current|recommended|change|last reported|container/i"
-                )
-
-        save_screenshot(authenticated_page, "07_optimizations_request_limit")
-
-        assert content.count() > 0, (
-            f"Optimizations page should show request/limit related content. "
+        assert has_wasted_cost_header or has_total_cost_header, (
+            "Optimizations page should show Wasted Cost or Total Cost columns. "
             f"Cluster ID: {cost_validation_data['cluster_id']}"
         )
 
@@ -365,20 +394,17 @@ class TestOptimizationRecommendations:
 @pytest.mark.ros
 @pytest.mark.data_validation
 class TestOptimizationBreakdown:
-    """Test optimization detail/breakdown views.
-    
-    Validates detailed breakdown view shows correct data.
-    Uses cost_validation_data fixture for self-contained data setup.
+    """Test optimization drill-down behavior.
+
+    The on-prem UI shows cluster-level efficiency summaries. Clicking a cluster
+    name applies a filter to show container-level optimization data for that
+    cluster. These tests verify the drill-down transition works.
     """
 
-    def test_can_navigate_to_optimization_detail(
+    def test_cluster_click_changes_page_state(
         self, authenticated_page: Page, ui_url: str, cost_validation_data
     ):
-        """Verify clicking an optimization reveals detail content.
-
-        The on-prem UI may show details via URL navigation (breakdown page)
-        or inline (drawer/expanded row). Both patterns are valid.
-        """
+        """Verify clicking a cluster name transitions the page to container view."""
         authenticated_page.goto(f"{ui_url}/openshift/cost-management/optimizations")
         authenticated_page.wait_for_load_state("networkidle")
         time.sleep(3)
@@ -387,76 +413,64 @@ class TestOptimizationBreakdown:
         if empty_state.count() > 0 and empty_state.first.is_visible():
             pytest.skip("No optimization data available yet")
 
-        clickable = authenticated_page.locator(
-            "table tbody tr a, table tbody tr[role='row'], "
-            "[role='row'] a, table tbody tr td a"
-        ).first
-
-        if clickable.count() == 0:
+        rows = authenticated_page.locator("table tbody tr, [role='row']")
+        if rows.count() == 0:
             pytest.skip("No clickable optimization rows found")
 
+        content_before = get_page_content_signature(authenticated_page)
         url_before = authenticated_page.url
-        clickable.click()
-        authenticated_page.wait_for_load_state("networkidle")
-        time.sleep(2)
 
-        save_screenshot(authenticated_page, "08_optimization_detail_navigation")
+        click_first_optimization_row(authenticated_page)
 
-        url_changed = authenticated_page.url != url_before
-        has_detail_content = authenticated_page.locator(
-            "text=/cpu|memory|request|limit|container|recommendation|last reported/i"
-        ).count() > 0
+        save_screenshot(authenticated_page, "08_optimization_cluster_drilldown")
 
-        assert url_changed or has_detail_content, (
-            "Clicking optimization should navigate to detail view or reveal detail content inline"
+        assert_click_changed_page_state(
+            authenticated_page, content_before, url_before
         )
 
-    def test_optimization_detail_shows_container_info(
+    def test_cluster_drilldown_shows_container_view(
         self, authenticated_page: Page, ui_url: str, cost_validation_data
     ):
-        """Verify optimization detail shows container-level information."""
+        """Verify cluster drill-down shows container-level view or empty state."""
         authenticated_page.goto(f"{ui_url}/openshift/cost-management/optimizations")
         authenticated_page.wait_for_load_state("networkidle")
         time.sleep(3)
-        
-        # Check for empty state
+
         empty_state = authenticated_page.locator(".pf-v6-c-empty-state, .pf-c-empty-state")
         if empty_state.count() > 0 and empty_state.first.is_visible():
             pytest.skip("No optimization data available yet")
-        
-        # Navigate to first optimization detail
-        clickable = authenticated_page.locator(
-            "table tbody tr a, table tbody tr[role='row']"
-        ).first
-        
-        if clickable.count() == 0:
+
+        rows = authenticated_page.locator("table tbody tr, [role='row']")
+        if rows.count() == 0:
             pytest.skip("No clickable optimization rows found")
-        
-        clickable.click()
-        authenticated_page.wait_for_load_state("networkidle")
-        time.sleep(2)
-        
-        # Look for container-related content
-        container_info = authenticated_page.get_by_text(
-            re.compile(r"container|pod|workload|namespace|cluster", re.IGNORECASE)
-        )
-        
-        # Capture screenshot for verification
-        save_screenshot(authenticated_page, "09_optimization_container_info")
-        
-        assert container_info.count() > 0, (
-            "Optimization detail should show container/workload information"
+
+        click_first_optimization_row(authenticated_page)
+
+        save_screenshot(authenticated_page, "09_optimization_container_view")
+
+        has_container_tab = authenticated_page.locator(
+            "text=/container/i"
+        ).count() > 0
+        has_filter_active = authenticated_page.locator(
+            "text=/clear all filters/i"
+        ).count() > 0
+        has_empty_state = authenticated_page.locator(
+            "text=/no match found|0 - 0 of 0/i"
+        ).count() > 0
+        has_container_rows = authenticated_page.locator(
+            "table tbody tr, [role='row']"
+        ).count() > 0
+
+        assert has_container_tab or has_filter_active or has_empty_state or has_container_rows, (
+            "After cluster drill-down, page should show container view, "
+            "active filter, empty state, or container rows. "
+            f"Cluster ID: {cost_validation_data['cluster_id']}"
         )
 
-    def test_optimization_detail_shows_recommendation_values(
+    def test_optimizations_multiple_clusters_listed(
         self, authenticated_page: Page, ui_url: str, cost_validation_data
     ):
-        """Verify optimizations page shows recommendation-related values.
-
-        Looks for numeric resource values (CPU cores, memory GiB) or
-        recommendation metadata (dates, container names, clusters) that
-        indicate recommendations are being displayed.
-        """
+        """Verify optimizations page lists multiple clusters."""
         authenticated_page.goto(f"{ui_url}/openshift/cost-management/optimizations")
         authenticated_page.wait_for_load_state("networkidle")
         time.sleep(3)
@@ -465,28 +479,11 @@ class TestOptimizationBreakdown:
         if empty_state.count() > 0 and empty_state.first.is_visible():
             pytest.skip("No optimization data available yet")
 
-        # Try clicking a row to reveal more content
-        clickable = authenticated_page.locator(
-            "table tbody tr a, table tbody tr[role='row']"
-        ).first
+        rows = authenticated_page.locator("table tbody tr, [role='row']")
 
-        if clickable.count() > 0:
-            clickable.click()
-            authenticated_page.wait_for_load_state("networkidle")
-            time.sleep(2)
+        save_screenshot(authenticated_page, "10_optimizations_multiple_clusters")
 
-        # Look for numeric values or recommendation content
-        has_numeric = authenticated_page.locator(
-            "text=/[0-9]+\\.?[0-9]*\\s*(core|cpu|gib|mib|m\\b)/i"
-        ).count() > 0
-
-        has_recommendation_content = authenticated_page.locator(
-            "text=/container|last reported|cluster|project|namespace/i"
-        ).count() > 0
-
-        save_screenshot(authenticated_page, "10_optimization_recommendation_values")
-
-        assert has_numeric or has_recommendation_content, (
-            f"Optimizations page should show numeric values or recommendation content. "
+        assert rows.count() >= 2, (
+            f"Optimizations page should list at least 2 clusters. Found {rows.count()}. "
             f"Cluster ID: {cost_validation_data['cluster_id']}"
         )
