@@ -99,14 +99,26 @@ data:
                   # =========================================================================
                   # ROUTING PRIORITY ORDER (Envoy uses first-match)
                   # =========================================================================
-                  # 1. ROS recommendations (most specific path, must match before /api/cost-management/)
+                  # 1a. ROS namespace recommendations (legacy path /openshift/namespace/...)
+                  # 1b. ROS recommendations (/recommendations/openshift/...)
                   # 2. RBAC Admin API (role, group, policy management — IAM)
                   # 3. Cost Management API (all methods - unified deployment)
                   #    Note: Sources API is now part of Cost Management API at /api/cost-management/v1/sources/
                   # 4. Ingress (file upload)
                   # =========================================================================
 
-                  # 1. ROS Recommendations - Route to ROS API service
+                  # 1a. ROS Namespace Recommendations (legacy path) - Route to ROS API service
+                  - match:
+                      prefix: "/api/cost-management/v1/openshift/namespace"
+                    route:
+                      cluster: ros-api-backend
+                      timeout: 30s
+                      retry_policy:
+                        retry_on: 5xx,reset,connect-failure,refused-stream
+                        num_retries: 2
+                        per_try_timeout: 15s
+
+                  # 1b. ROS Recommendations - Route to ROS API service
                   # Must be before general /api/cost-management/ routes
                   - match:
                       prefix: "/api/cost-management/v1/recommendations/openshift"
