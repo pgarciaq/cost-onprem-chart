@@ -1020,7 +1020,7 @@ jwtAuth:
     servicePort: 8080
 
     # Keycloak realm name
-    realm: kubernetes
+    realm: cost-management
 
     # Client configuration (for reference - used by Cost Management Metrics Operator)
     client:
