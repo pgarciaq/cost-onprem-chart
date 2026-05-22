@@ -2,25 +2,33 @@
 # Cluster: sno.karmalabs.corp (OCP 4.21 aarch64)
 # Uses internal OCP image registry
 
+# insights-rbac is amd64-only; Koku uses ENHANCED_ORG_ADMIN when RBAC is disabled.
+rbac:
+  enabled: false
+
 global:
   clusterDomain: "apps.sno.karmalabs.corp"
   storageClass: "lvms-vg1"
   pullPolicy: IfNotPresent
 
-# Custom arm64 ROS image (built from ros-ocp-backend phase6 branch)
+# Custom arm64 ROS image (business hours E2E build)
 ros:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
-    tag: "phase6"
+    tag: "bh-20260522-tz2"
     pullPolicy: IfNotPresent
+  api:
+    businessHoursEnabled: true
 
 # Custom arm64 Koku image
 costManagement:
   api:
     enabled: true
+    env:
+      ENHANCED_ORG_ADMIN: "True"
     image:
       repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku
-      tag: "latest"
+      tag: "bh-20260522"
       pullPolicy: IfNotPresent
   celery:
     pollingTimer: 60
@@ -113,6 +121,7 @@ kruize:
 
 # S3/MinIO - chart-internal MinIO (no ODF on this cluster)
 objectStorage:
+  secretName: cost-onprem-storage-credentials
   endpoint: "minio.cost-onprem.svc.cluster.local"
   port: 9000
   useSSL: false

@@ -40,21 +40,20 @@ spec:
               containerPort: {{ .Values.database.server.port }}
               protocol: TCP
           env:
-            # registry.redhat.io/rhel*/postgresql-* (sclorg): requires POSTGRESQL_ADMIN_PASSWORD
-            # or POSTGRESQL_USER+POSTGRESQL_PASSWORD+POSTGRESQL_DATABASE. Admin password path
-            # matches bundled init (superuser role is "postgres").
-            - name: POSTGRESQL_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "cost-onprem.database.defaultSecretName" . }}
-                  key: postgres-password
-            # Used by init script and probes (must be the PostgreSQL superuser name, typically "postgres")
+            # docker.io/library/postgres (multi-arch SNO) and registry.redhat.io/rhel*/postgresql-* (sclorg).
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
                   name: {{ include "cost-onprem.database.defaultSecretName" . }}
                   key: postgres-user
-            # Service users/passwords for bundled init script (sourced from postgresql-init dir)
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.defaultSecretName" . }}
+                  key: postgres-password
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+            # Service users/passwords for bundled init script
             - name: ROS_USER
               valueFrom:
                 secretKeyRef:
@@ -97,9 +96,9 @@ spec:
                   key: rbac-password
           volumeMounts:
             - name: postgres-storage
-              mountPath: /var/lib/pgsql/data
+              mountPath: /var/lib/postgresql/data
             - name: init-scripts
-              mountPath: /opt/app-root/src/postgresql-init
+              mountPath: /docker-entrypoint-initdb.d
               readOnly: true
           livenessProbe:
             exec:

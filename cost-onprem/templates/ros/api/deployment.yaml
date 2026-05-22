@@ -56,7 +56,7 @@ spec:
             - name: CLOWDER_ENABLED
               value: "false"
             - name: RBAC_ENABLE
-              value: "true"
+              value: {{ .Values.rbac.enabled | quote }}
             - name: RBACHOST
               value: {{ include "cost-onprem.rbac.serviceHost" . | quote }}
             - name: RBACPORT

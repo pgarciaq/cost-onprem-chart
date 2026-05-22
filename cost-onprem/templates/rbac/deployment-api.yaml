@@ -1,3 +1,4 @@
+{{- if .Values.rbac.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,3 +77,4 @@ spec:
 
         securityContext:
           {{- include "cost-onprem.securityContext.container" . | nindent 10 }}
+{{- end }}

@@ -136,6 +136,7 @@ Wait for RBAC API init container - waits for insights-rbac authorization service
 Usage: {{ include "cost-onprem.initContainer.waitForRbac" . | nindent 8 }}
 */}}
 {{- define "cost-onprem.initContainer.waitForRbac" -}}
+{{- if .Values.rbac.enabled }}
 - name: wait-for-rbac
   image: "{{ .Values.global.initContainers.waitFor.repository }}:{{ .Values.global.initContainers.waitFor.tag }}"
   securityContext:
@@ -149,6 +150,7 @@ Usage: {{ include "cost-onprem.initContainer.waitForRbac" . | nindent 8 }}
         sleep 5
       done
       echo "RBAC is ready"
+{{- end }}
 {{- end -}}
 
 {{/*

@@ -652,6 +652,8 @@ database:
 # Koku delegates all permission checks to this service via HTTP.
 # Deploys an API server (Gunicorn) and a Celery worker for async tasks.
 rbac:
+  # insights-rbac image is amd64-only; disable on aarch64 SNO (use ENHANCED_ORG_ADMIN on Koku).
+  enabled: true
   image:
     repository: quay.io/cloudservices/rbac
     tag: "c2b9ccf"
