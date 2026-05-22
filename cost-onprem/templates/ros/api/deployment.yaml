@@ -93,6 +93,8 @@ spec:
               value: {{ include "cost-onprem.kafka.bootstrapServers" . | quote }}
             - name: KAFKA_SECURITY_PROTOCOL
               value: {{ include "cost-onprem.kafka.securityProtocol" . | quote }}
+            - name: KOKU_MASU_URL
+              value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
           livenessProbe:
             httpGet:
               path: /status
