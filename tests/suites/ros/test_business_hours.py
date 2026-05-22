@@ -28,6 +28,7 @@ import requests
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
 from utils import (
     check_pod_ready,
+    exec_in_pod,
     execute_db_query,
     get_pod_by_label,
     get_secret_value,
@@ -93,13 +94,15 @@ def ros_database_config(cluster_config, database_config):
 
 
 @pytest.fixture(scope="module")
-def business_hours_feature(ros_api_url: str, keycloak_config, cluster_config, http_session):
+def business_hours_feature(ros_api_url: str, keycloak_config, cluster_config):
     """Skip the module when business hours is disabled or routes are hidden."""
-    auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+    session = requests.Session()
+    session.verify = False
+    auth = get_fresh_token(keycloak_config, cluster_config, session)
     if not auth:
         pytest.skip("Could not obtain JWT for capabilities check")
 
-    resp = http_session.get(_capabilities_url(ros_api_url), headers=auth, timeout=30)
+    resp = session.get(_capabilities_url(ros_api_url), headers=auth, timeout=30)
     if resp.status_code == 404:
         pytest.skip("Business hours capabilities endpoint not deployed")
     if resp.status_code not in (200,):
@@ -554,7 +557,7 @@ class TestBusinessHoursE2E:
         http_session: requests.Session,
     ):
         """BH-E2E-004: masu down → reship_pending set → masu up → pending cleared."""
-        masu_deploy = f"{cluster_config.helm_release_name}-masu-api"
+        masu_deploy = f"{cluster_config.helm_release_name}-koku-masu"
         ns = cluster_config.namespace
 
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
@@ -593,7 +596,12 @@ class TestBusinessHoursE2E:
             run_oc_command([
                 "scale", "deployment", masu_deploy, "-n", ns, "--replicas=1",
             ], check=False)
-            assert check_pod_ready(ns, "app.kubernetes.io/component=cost-processor", timeout=180)
+            assert wait_for_condition(
+                lambda: check_pod_ready(ns, "app.kubernetes.io/component=cost-processor"),
+                timeout=180,
+                interval=10,
+                description="masu cost-processor pod ready",
+            )
 
             assert wait_for_reship_pending_cleared(
                 ros_database_config, org_id, bh_cluster_uuid, timeout=600
@@ -775,7 +783,12 @@ class TestBusinessHoursExtendedScenarios:
             run_oc_command([
                 "scale", "deployment", processor_deploy, "-n", ns, "--replicas=1",
             ], check=False)
-            if not check_pod_ready(ns, "app.kubernetes.io/component=ros-processor", timeout=240):
+            if not wait_for_condition(
+                lambda: check_pod_ready(ns, "app.kubernetes.io/component=ros-processor"),
+                timeout=240,
+                interval=10,
+                description="ros-processor pod ready",
+            ):
                 pytest.skip("ros-processor did not become ready after scale-up")
 
             # Kafka redelivery / catch-up: dual digests should appear after consumer resumes.
