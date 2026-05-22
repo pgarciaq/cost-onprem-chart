@@ -554,3 +554,98 @@ class TestBusinessHoursExtended:
             assert elapsed_min < 30.0, f"Reship took {elapsed_min:.1f} minutes (limit 30)"
         finally:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+
+
+@pytest.mark.extended
+class TestBusinessHoursExtendedScenarios:
+    """Extended business-hours scenarios (BH-E2E-012 through BH-E2E-020)."""
+
+    def test_bh_e2e_012_metrics_reship_attempts_total(
+        self,
+        business_hours_feature,
+        ros_api_url: str,
+        bh_auth: dict,
+    ):
+        """BH-E2E-012: Metrics endpoint exposes reship-related Prometheus counters."""
+        pytest.skip("requires Prometheus scrape of ros-api metrics port; not wired in default E2E")
+
+    def test_bh_e2e_013_kafka_consumer_failure_redelivery(
+        self,
+        business_hours_feature,
+    ):
+        """BH-E2E-013: Kafka consumer failure causes message redelivery after recovery."""
+        pytest.skip("requires fault injection infrastructure")
+
+    def test_bh_e2e_014_s3_presigned_url_expired(
+        self,
+        business_hours_feature,
+    ):
+        """BH-E2E-014: Expired S3 presigned URL returns 403, logged, metric incremented."""
+        pytest.skip("requires fault injection infrastructure")
+
+    def test_bh_e2e_015_schedule_change_during_active_reship(
+        self,
+        business_hours_feature,
+        http_session,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+    ):
+        """BH-E2E-015: Schedule change during active reship triggers trailing reship."""
+        pytest.skip("requires concurrent PUT timing against live masu reship")
+
+    def test_bh_e2e_016_incremental_visibility(
+        self,
+        business_hours_feature,
+        http_session,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+    ):
+        """BH-E2E-016: New BH recommendations appear within upload_cycle after reship starts."""
+        pytest.skip("requires long-running reship observation window")
+
+    def test_bh_e2e_017_delete_schedule_prunes_digests(
+        self,
+        business_hours_feature,
+        http_session,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+        ros_database_config,
+        org_id: str,
+    ):
+        """BH-E2E-017: DELETE schedule prunes business_hours digests on next ingest."""
+        pytest.skip("requires full ingest cycle after DELETE; extend BH-E2E-002 pattern")
+
+    def test_bh_e2e_018_kill_switch_no_bh_data(
+        self,
+        ros_api_url: str,
+        keycloak_config,
+        cluster_config,
+        http_session,
+    ):
+        """BH-E2E-018: Kill-switch off hides BH endpoints and omits BH digests from API."""
+        pytest.skip("covered by TestBusinessHoursKillSwitch; run with ROS_BUSINESS_HOURS_ENABLED=false")
+
+    def test_bh_e2e_019_multiple_orgs_isolated(
+        self,
+        business_hours_feature,
+        http_session,
+        ros_api_url: str,
+        bh_auth: dict,
+        ros_database_config,
+    ):
+        """BH-E2E-019: Org1 schedule does not affect org2 recommendations."""
+        pytest.skip("requires second org identity and isolated cluster fixtures")
+
+    def test_bh_e2e_020_concurrent_puts_max_two_reships(
+        self,
+        business_hours_feature,
+        http_session,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+    ):
+        """BH-E2E-020: Concurrent PUTs result in at most two masu reship executions."""
+        pytest.skip("requires masu request counting under concurrent load")
