@@ -95,6 +95,8 @@ spec:
               value: {{ include "cost-onprem.kafka.securityProtocol" . | quote }}
             - name: KOKU_MASU_URL
               value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
+            - name: ROS_BUSINESS_HOURS_ENABLED
+              value: {{ .Values.ros.api.businessHoursEnabled | quote }}
           livenessProbe:
             httpGet:
               path: /status
