@@ -67,6 +67,8 @@ ros:
     dbMaxOverflow: 20
     serviceName: ros-api
     logLevel: INFO
+    # Business-hours settings API and dual-stream recommendations (ros-api kill-switch).
+    businessHoursEnabled: true
 
   # Processor Component - Processes uploaded data
   processor:
