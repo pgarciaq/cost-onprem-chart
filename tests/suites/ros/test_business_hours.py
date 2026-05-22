@@ -404,6 +404,7 @@ def _grep_pod_logs(
     return result.stdout
 
 
+@pytest.mark.timeout(900)
 @pytest.mark.ros
 @pytest.mark.integration
 class TestBusinessHoursE2E:
@@ -673,6 +674,7 @@ class TestBusinessHoursKillSwitch:
         assert resp.status_code in (200, 404), resp.text
 
 
+@pytest.mark.timeout(900)
 @pytest.mark.ros
 @pytest.mark.integration
 @pytest.mark.slow
@@ -708,6 +710,7 @@ class TestBusinessHoursExtended:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
 
 
+@pytest.mark.timeout(900)
 @pytest.mark.ros
 @pytest.mark.integration
 @pytest.mark.extended
