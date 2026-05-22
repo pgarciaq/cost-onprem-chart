@@ -1,3 +1,4 @@
+{{- if .Values.rbac.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -231,3 +232,4 @@ spec:
             - key: ca.crt
               path: ca.crt
       {{- end }}
+{{- end }}

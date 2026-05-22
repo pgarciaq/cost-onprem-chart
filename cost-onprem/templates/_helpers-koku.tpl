@@ -360,6 +360,17 @@ Common environment variables for Koku API and Celery
     secretKeyRef:
       name: {{ include "cost-onprem.storage.secretName" . }}
       key: secret-key
+# EnvConfigurator (CLOWDER_ENABLED=false) reads S3_ACCESS_KEY/S3_SECRET for all buckets.
+- name: S3_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "cost-onprem.storage.secretName" . }}
+      key: access-key
+- name: S3_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "cost-onprem.storage.secretName" . }}
+      key: secret-key
 # S3 Region for signature generation (required for S3v4 signatures)
 # Most on-premise S3 backends don't use regions, but boto3 requires it for signature calculation
 - name: S3_REGION

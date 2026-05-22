@@ -1,3 +1,4 @@
+{{- if .Values.rbac.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -90,3 +91,4 @@ spec:
             - key: ca.crt
               path: ca.crt
         {{- end }}
+{{- end }}

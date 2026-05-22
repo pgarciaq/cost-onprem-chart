@@ -1,3 +1,4 @@
+{{- if .Values.rbac.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -34,3 +35,4 @@ spec:
       ports:
         - protocol: TCP
           port: {{ include "cost-onprem.rbac.service.port" . }}
+{{- end }}
