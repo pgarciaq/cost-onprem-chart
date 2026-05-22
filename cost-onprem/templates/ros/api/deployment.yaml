@@ -91,12 +91,10 @@ spec:
               value: {{ include "cost-onprem.database.url" . }}
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "cost-onprem.kafka.bootstrapServers" . | quote }}
-            {{- include "cost-onprem.kafka.saslEnv" . | nindent 12 }}
-            {{- include "cost-onprem.kafka.tlsEnv" . | nindent 12 }}
-          {{- if and .Values.kafka.tls.enabled .Values.kafka.tls.caCertSecret }}
-          volumeMounts:
-            {{- include "cost-onprem.kafka.tlsVolumeMount" . | nindent 12 }}
-          {{- end }}
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: {{ include "cost-onprem.kafka.securityProtocol" . | quote }}
+            - name: KOKU_MASU_URL
+              value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
           livenessProbe:
             httpGet:
               path: /status
@@ -115,7 +113,3 @@ spec:
             failureThreshold: {{ .Values.probes.failureThreshold }}
           resources:
             {{- toYaml .Values.resources.application | nindent 12 }}
-      {{- if and .Values.kafka.tls.enabled .Values.kafka.tls.caCertSecret }}
-      volumes:
-        {{- include "cost-onprem.kafka.tlsVolume" . | nindent 8 }}
-      {{- end }}
