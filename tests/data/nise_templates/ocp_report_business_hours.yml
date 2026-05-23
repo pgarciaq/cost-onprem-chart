@@ -1,0 +1,181 @@
+---
+# Business Hours E2E data generation template (Appendix B, ros-ocp-backend test plan).
+#
+# Produces OCP + ROS container-level metrics for validating Business Hours
+# recommendations: dual digests (all_hours vs business_hours), namespace-level
+# schedule overrides, and workloads with distinct sizing profiles.
+#
+# Workload patterns (constant usage per pod; BH weighting applied at ingestion
+# from interval_start timestamps in ROS CSV rows):
+#   bh-office  — "daytime" services: moderate requests, low usage (over-provisioned)
+#   bh-batch   — "batch" services: steady 24/7 usage near request
+#   bh-nights  — "nighttime" services: high usage relative to request (under-provisioned)
+#
+# Requires at least 7 days of data for ROS min_data_days. With start_date: last_month
+# and end_date: today, standalone nise runs cover ~30 days. When invoked via
+# generate_nise_data(), pass a start_date at least 7 days in the past.
+#
+# Usage:
+#   nise report ocp --static-report-file tests/data/nise_templates/ocp_report_business_hours.yml \
+#     --ocp-cluster-id <CLUSTER-UUID> --ros-ocp-info -w
+#
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        # Worker 1: daytime / office workloads (bh-office namespace)
+        - node:
+          node_name: bh-worker-1
+          node_labels: label_environment:production|label_role:compute|label_workload:daytime
+          cpu_cores: 8
+          memory_gig: 32
+          resource_id: 88001001
+          namespaces:
+            bh-office:
+              namespace_labels: label_team:office|label_bh_pattern:daytime
+              pods:
+                - pod:
+                  pod_name: web-frontend
+                  cpu_request: 2
+                  mem_request_gig: 2
+                  cpu_limit: 4
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.35
+                  mem_usage_gig:
+                    full_period: 0.8
+                  labels: label_app:web-frontend|label_bh_pattern:daytime|label_component:frontend
+                  workload: deployment
+                - pod:
+                  pod_name: api-gateway
+                  cpu_request: 1.5
+                  mem_request_gig: 1.5
+                  cpu_limit: 3
+                  mem_limit_gig: 3
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.45
+                  mem_usage_gig:
+                    full_period: 1.0
+                  labels: label_app:api-gateway|label_bh_pattern:daytime|label_component:api
+                  workload: deployment
+              volumes:
+                - volume:
+                  volume_name: pvc-web-assets
+                  storage_class: gp3-csi
+                  volume_request_gig: 20
+                  labels: label_app:web-frontend|label_storageclass:gp3-csi
+                  volume_claims:
+                  - volume_claim:
+                    volume_claim_name: web-assets-data
+                    pod_name: web-frontend
+                    labels: label_app:web-frontend|label_storageclass:gp3-csi
+                    capacity_gig: 20
+                    volume_claim_usage_gig:
+                      full_period: 8
+
+        # Worker 2: batch / always-on workloads (bh-batch namespace)
+        - node:
+          node_name: bh-worker-2
+          node_labels: label_environment:production|label_role:compute|label_workload:batch
+          cpu_cores: 8
+          memory_gig: 32
+          resource_id: 88001002
+          namespaces:
+            bh-batch:
+              namespace_labels: label_team:platform|label_bh_pattern:batch
+              pods:
+                - pod:
+                  pod_name: etl-worker
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.9
+                  mem_usage_gig:
+                    full_period: 1.8
+                  labels: label_app:etl-worker|label_bh_pattern:batch|label_component:worker
+                  workload: deployment
+                - pod:
+                  pod_name: metrics-collector
+                  cpu_request: 0.5
+                  mem_request_gig: 1
+                  cpu_limit: 1
+                  mem_limit_gig: 2
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.48
+                  mem_usage_gig:
+                    full_period: 0.95
+                  labels: label_app:metrics-collector|label_bh_pattern:batch|label_component:daemon
+                  workload: daemonset
+              volumes:
+                - volume:
+                  volume_name: pvc-etl-scratch
+                  storage_class: gp2
+                  volume_request_gig: 50
+                  labels: label_app:etl-worker|label_storageclass:gp2
+                  volume_claims:
+                  - volume_claim:
+                    volume_claim_name: etl-scratch-data
+                    pod_name: etl-worker
+                    labels: label_app:etl-worker|label_storageclass:gp2
+                    capacity_gig: 50
+                    volume_claim_usage_gig:
+                      full_period: 25
+
+        # Worker 3: off-hours / overnight workloads (bh-nights namespace)
+        - node:
+          node_name: bh-worker-3
+          node_labels: label_environment:production|label_role:compute|label_workload:nighttime
+          cpu_cores: 8
+          memory_gig: 32
+          resource_id: 88001003
+          namespaces:
+            bh-nights:
+              namespace_labels: label_team:ops|label_bh_pattern:nighttime
+              pods:
+                - pod:
+                  pod_name: backup-runner
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.75
+                  mem_usage_gig:
+                    full_period: 3.2
+                  labels: label_app:backup-runner|label_bh_pattern:nighttime|label_component:backup
+                  workload: cronjob
+                - pod:
+                  pod_name: report-generator
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.85
+                  mem_usage_gig:
+                    full_period: 6.5
+                  labels: label_app:report-generator|label_bh_pattern:nighttime|label_component:analytics
+                  workload: deployment
+              volumes:
+                - volume:
+                  volume_name: pvc-backup-store
+                  storage_class: gp3-csi
+                  volume_request_gig: 100
+                  labels: label_app:backup-runner|label_storageclass:gp3-csi
+                  volume_claims:
+                  - volume_claim:
+                    volume_claim_name: backup-store-data
+                    pod_name: backup-runner
+                    labels: label_app:backup-runner|label_storageclass:gp3-csi
+                    capacity_gig: 100
+                    volume_claim_usage_gig:
+                      full_period: 60
