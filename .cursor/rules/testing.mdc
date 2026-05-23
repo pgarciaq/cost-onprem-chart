@@ -87,6 +87,26 @@ Key points:
 5. Run `--all` tests to verify: `./scripts/run-pytest.sh --all`
 6. Check `tests/conftest.py` and `tests/e2e_helpers.py` for shared utilities
 
+## IMPORTANT: Always rebuild and deploy before running E2E tests
+
+**NEVER run E2E tests against a cluster without first rebuilding and deploying the latest code.** The cluster image may be stale. Before every E2E run:
+
+1. Build a new image with a **unique tag** (never reuse tags due to `imagePullPolicy: IfNotPresent`)
+2. Push to the cluster's image registry
+3. Update deployments with `kubectl set image`
+4. Wait for rollout to complete
+5. Apply any pending migrations
+6. THEN run the test suite
+
+```bash
+# Example workflow (aarch64 SNO)
+TAG="bh-$(date +%Y%m%d)-v1"
+podman build --platform linux/arm64 -t ros-ocp-backend:${TAG} -f Dockerfile .
+podman push --tls-verify=false ${REGISTRY}/cost-onprem/ros-ocp-backend:${TAG}
+kubectl set image deployment/cost-onprem-ros-api ros-api=image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend:${TAG} -n cost-onprem
+kubectl rollout status deployment/cost-onprem-ros-api -n cost-onprem --timeout=300s
+```
+
 ## IMPORTANT: Do NOT tail logs automatically
 
 **NEVER run `kubectl logs --follow` or `tail -f` or any log-tailing command unless explicitly asked by the user.** These commands block and waste time. Instead:

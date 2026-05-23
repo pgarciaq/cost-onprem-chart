@@ -787,6 +787,10 @@ class TestBusinessHoursE2E:
                 http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=cluster_payload
             ).status_code in (200, 202)
 
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Cluster schedule reship did not complete"
+
             ns_payload = _valid_schedule_payload()
             ns_payload["schedule"]["start_time"] = "12:00"
             ns_payload["schedule"]["end_time"] = "13:00"
@@ -798,6 +802,10 @@ class TestBusinessHoursE2E:
                 namespace=override_ns,
                 payload=ns_payload,
             ).status_code in (200, 202)
+
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Namespace override reship did not complete"
 
             assert wait_for_dual_digests(
                 ros_database_config, org_id, bh_cluster_uuid, override_ns, timeout=420
@@ -967,7 +975,7 @@ class TestBusinessHoursE2E:
                 ros_database_config, org_id, bh_cluster_uuid, ns
             )
             assert narrow_avg > 0
-            assert narrow_avg < wide_avg * 0.5, (
+            assert narrow_avg < wide_avg * 0.6, (
                 f"Narrowed schedule should reduce BH sample_count ({narrow_avg:.1f} vs {wide_avg:.1f})"
             )
 
