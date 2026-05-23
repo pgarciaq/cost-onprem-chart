@@ -106,6 +106,8 @@ spec:
               value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
             - name: ROS_BUSINESS_HOURS_ENABLED
               value: {{ .Values.ros.api.businessHoursEnabled | quote }}
+            - name: ROS_BUSINESS_HOURS_RESHIP_FORWARD_ONLY_FALLBACK
+              value: {{ .Values.ros.api.reshipForwardOnlyFallback | quote }}
             # SSL_CERT_FILE is used by Go's crypto/x509 to load CA certificates
             # Points to combined bundle with system CAs + OpenShift cluster CA + Service CA
             - name: SSL_CERT_FILE
