@@ -97,6 +97,8 @@ spec:
               value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
             - name: ROS_BUSINESS_HOURS_ENABLED
               value: {{ .Values.ros.api.businessHoursEnabled | quote }}
+            - name: ROS_BUSINESS_HOURS_RESHIP_FORWARD_ONLY_FALLBACK
+              value: {{ .Values.ros.api.reshipForwardOnlyFallback | quote }}
           livenessProbe:
             httpGet:
               path: /status

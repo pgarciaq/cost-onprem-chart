@@ -69,6 +69,8 @@ ros:
     logLevel: INFO
     # Business-hours settings API and dual-stream recommendations (ros-api kill-switch).
     businessHoursEnabled: true
+    # When true, exhausted masu reship retries transition to forward-only BH recommendations.
+    reshipForwardOnlyFallback: false
 
   # Processor Component - Processes uploaded data
   processor:
