@@ -256,6 +256,11 @@ def wait_for_dual_digests(
     return wait_for_condition(check, timeout=timeout, interval=15, description="dual digests")
 
 
+def _pg_bool(value: Optional[str]) -> bool:
+    """Parse a PostgreSQL boolean from psql -t -A output (true/false or t/f)."""
+    return (value or "").lower() in ("t", "true", "1")
+
+
 def wait_for_reship_pending_cleared(
     ros_database_config: dict,
     org_id: str,
@@ -278,7 +283,7 @@ def wait_for_reship_pending_cleared(
             """,
             password=ros_database_config["password"],
         )
-        return rows is not None and rows[0][0] == "t"
+        return rows is not None and _pg_bool(rows[0][0])
 
     return wait_for_condition(
         check, timeout=timeout, interval=20, description="reship_pending cleared"
@@ -610,7 +615,7 @@ class TestBusinessHoursE2E:
                     """,
                     password=ros_database_config["password"],
                 )
-                return rows and rows[0][0] == "t"
+                return rows and _pg_bool(rows[0][0])
 
             assert wait_for_condition(
                 pending_set, timeout=120, interval=10, description="reship_pending set"
