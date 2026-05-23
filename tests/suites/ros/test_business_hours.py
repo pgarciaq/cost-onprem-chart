@@ -140,7 +140,7 @@ def _pick_registered_bh_cluster(
         FROM clusters c
         JOIN rh_accounts r ON r.id = c.tenant_id AND r.org_id = '{org_id}'
         JOIN daily_container_digests d
-          ON d.cluster_uuid = c.cluster_uuid::text AND d.org_id = '{org_id}'
+          ON d.cluster_uuid::text = c.cluster_uuid::text AND d.org_id = '{org_id}'
         ORDER BY c.cluster_uuid::text
         LIMIT 10
         """,
