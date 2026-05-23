@@ -474,6 +474,7 @@ class TestBusinessHoursE2E:
     def test_schedule_change_trailing_reship(
         self,
         business_hours_feature,
+        cluster_config,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -488,22 +489,12 @@ class TestBusinessHoursE2E:
                 http_session, ros_api_url, bh_auth, bh_cluster_uuid
             ).status_code in (200, 202)
 
-            wait_for_dual_digests(ros_database_config, org_id, bh_cluster_uuid, timeout=420)
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=420
+            ), "Timed out waiting for initial dual schedule_type digests"
 
-            rows_before = execute_db_query(
-                ros_database_config["namespace"],
-                ros_database_config["pod_name"],
-                ros_database_config["database"],
-                ros_database_config["user"],
-                f"""
-                SELECT COALESCE(MAX(updated_at)::text, '')
-                FROM daily_container_digests
-                WHERE org_id = '{org_id}' AND cluster_uuid = '{bh_cluster_uuid}'::uuid
-                  AND schedule_type = 'business_hours'
-                """,
-                password=ros_database_config["password"],
-            )
-            ts_before = rows_before[0][0] if rows_before else ""
+            # daily_container_digests has no updated_at column; detect reship via ros-api logs.
+            baseline_completions = _count_ros_reship_completions(cluster_config, since_seconds=600)
 
             payload = _valid_schedule_payload()
             payload["schedule"]["start_time"] = "09:00"
@@ -512,27 +503,16 @@ class TestBusinessHoursE2E:
             )
             assert resp.status_code in (200, 202), resp.text
 
-            def digests_refreshed():
-                rows = execute_db_query(
-                    ros_database_config["namespace"],
-                    ros_database_config["pod_name"],
-                    ros_database_config["database"],
-                    ros_database_config["user"],
-                    f"""
-                    SELECT COALESCE(MAX(updated_at)::text, '')
-                    FROM daily_container_digests
-                    WHERE org_id = '{org_id}' AND cluster_uuid = '{bh_cluster_uuid}'::uuid
-                      AND schedule_type = 'business_hours'
-                    """,
-                    password=ros_database_config["password"],
-                )
-                if not rows:
-                    return False
-                return rows[0][0] != "" and (not ts_before or rows[0][0] >= ts_before)
+            def reship_after_schedule_change():
+                count = _count_ros_reship_completions(cluster_config, since_seconds=600)
+                return count > baseline_completions
 
             assert wait_for_condition(
-                digests_refreshed, timeout=600, interval=20, description="BH digest refresh"
-            )
+                reship_after_schedule_change,
+                timeout=300,
+                interval=15,
+                description="reship after schedule change",
+            ), "Expected masu reship to run after schedule start_time change"
         finally:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
 
@@ -594,7 +574,21 @@ class TestBusinessHoursE2E:
             run_oc_command([
                 "scale", "deployment", masu_deploy, "-n", ns, "--replicas=0",
             ], check=False)
-            time.sleep(10)
+
+            def masu_pods_gone():
+                result = run_oc_command([
+                    "get", "pods", "-n", ns,
+                    "-l", "app.kubernetes.io/component=cost-processor",
+                    "-o", "jsonpath={.items[*].metadata.name}",
+                ], check=False)
+                return result.returncode == 0 and not result.stdout.strip()
+
+            assert wait_for_condition(
+                masu_pods_gone,
+                timeout=90,
+                interval=5,
+                description="masu pods terminated",
+            ), "masu must be fully scaled down before PUT (Terminating pods can still accept traffic)"
 
             resp = put_business_hours_schedule(
                 http_session, ros_api_url, bh_auth, bh_cluster_uuid
