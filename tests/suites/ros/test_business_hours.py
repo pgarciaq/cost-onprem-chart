@@ -401,6 +401,123 @@ def _count_digest_rows(
     return int(rows[0][0]) if rows and rows[0][0] else 0
 
 
+def _find_namespaces_with_digests(
+    ros_database_config: dict,
+    org_id: str,
+    cluster_uuid: str,
+    min_count: int = 2,
+) -> list[str]:
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT namespace, COUNT(*)::text AS cnt
+        FROM daily_container_digests
+        WHERE org_id = '{org_id}'
+          AND cluster_uuid = '{cluster_uuid}'::uuid
+          AND schedule_type = 'all_hours'
+          AND namespace <> ''
+        GROUP BY namespace
+        HAVING COUNT(*) >= 5
+        ORDER BY cnt DESC
+        LIMIT 10
+        """,
+        password=ros_database_config["password"],
+    )
+    namespaces = [row[0] for row in rows or [] if row and row[0]]
+    if len(namespaces) >= min_count:
+        return namespaces[:min_count]
+    return namespaces
+
+
+def _avg_bh_sample_count(
+    ros_database_config: dict,
+    org_id: str,
+    cluster_uuid: str,
+    namespace: str,
+) -> float:
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT COALESCE(AVG(sample_count), 0)::text
+        FROM daily_container_digests
+        WHERE org_id = '{org_id}'
+          AND cluster_uuid = '{cluster_uuid}'::uuid
+          AND namespace = '{namespace}'
+          AND schedule_type = 'business_hours'
+          AND sample_count > 0
+        """,
+        password=ros_database_config["password"],
+    )
+    if not rows or not rows[0][0]:
+        return 0.0
+    return float(rows[0][0])
+
+
+def _find_cluster_without_digests(
+    ros_database_config: dict,
+    org_id: str,
+) -> Optional[str]:
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT c.cluster_uuid::text
+        FROM clusters c
+        JOIN rh_accounts r ON r.id = c.tenant_id AND r.org_id = '{org_id}'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM daily_container_digests d
+            WHERE d.org_id = '{org_id}'
+              AND d.cluster_uuid = c.cluster_uuid
+        )
+        ORDER BY c.cluster_uuid::text
+        LIMIT 5
+        """,
+        password=ros_database_config["password"],
+    )
+    return rows[0][0] if rows and rows[0][0] else None
+
+
+def _get_cluster_reship_status(
+    http_session: requests.Session,
+    ros_api_url: str,
+    auth_header: dict,
+    cluster_id: str,
+) -> dict[str, Any]:
+    resp = http_session.get(
+        f"{_bh_settings_base(ros_api_url)}/clusters/{cluster_id}",
+        headers=auth_header,
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        return {}
+    return resp.json()
+
+
+def wait_for_reship_status(
+    http_session: requests.Session,
+    ros_api_url: str,
+    auth_header: dict,
+    cluster_id: str,
+    expected_status: str,
+    timeout: int = 300,
+) -> bool:
+    def check():
+        body = _get_cluster_reship_status(http_session, ros_api_url, auth_header, cluster_id)
+        return body.get("reship_status") == expected_status
+
+    return wait_for_condition(
+        check, timeout=timeout, interval=15, description=f"reship_status={expected_status}"
+    )
+
+
 def _count_ros_reship_completions(cluster_config, since_seconds: int = 600) -> int:
     """Count 'reship completed' log lines on ros-api (one per masu reship_ros call)."""
     deploy = f"{cluster_config.helm_release_name}-ros-api"
@@ -441,7 +558,7 @@ def _grep_pod_logs(
 @pytest.mark.ros
 @pytest.mark.integration
 class TestBusinessHoursE2E:
-    """Full-stack business hours scenarios (BH-E2E-001 through BH-E2E-007)."""
+    """Full-stack business hours scenarios (BH-E2E-001 through BH-E2E-011)."""
 
     def test_happy_path_dual_recommendations(
         self,
@@ -638,6 +755,233 @@ class TestBusinessHoursE2E:
             run_oc_command([
                 "scale", "deployment", masu_deploy, "-n", ns, "--replicas=1",
             ], check=False)
+            delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+
+    def test_namespace_mixed_schedules(
+        self,
+        business_hours_feature,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+        org_id: str,
+        ros_database_config: dict,
+        http_session: requests.Session,
+    ):
+        """BH-E2E-008: namespace override uses its own window; others inherit cluster schedule."""
+        namespaces = _find_namespaces_with_digests(
+            ros_database_config, org_id, bh_cluster_uuid, min_count=2
+        )
+        if len(namespaces) < 2:
+            pytest.skip("Need at least two namespaces with digest data for mixed-schedule test")
+
+        override_ns, inherit_ns = namespaces[0], namespaces[1]
+        delete_business_hours_schedule(
+            http_session, ros_api_url, bh_auth, bh_cluster_uuid, override_ns
+        )
+        delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+        try:
+            cluster_payload = _valid_schedule_payload()
+            cluster_payload["schedule"]["start_time"] = "08:00"
+            cluster_payload["schedule"]["end_time"] = "17:00"
+            assert put_business_hours_schedule(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=cluster_payload
+            ).status_code in (200, 202)
+
+            ns_payload = _valid_schedule_payload()
+            ns_payload["schedule"]["start_time"] = "12:00"
+            ns_payload["schedule"]["end_time"] = "13:00"
+            assert put_business_hours_schedule(
+                http_session,
+                ros_api_url,
+                bh_auth,
+                bh_cluster_uuid,
+                namespace=override_ns,
+                payload=ns_payload,
+            ).status_code in (200, 202)
+
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, override_ns, timeout=420
+            ), "Timed out waiting for dual digests in override namespace"
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, inherit_ns, timeout=420
+            ), "Timed out waiting for dual digests in inherited namespace"
+
+            override_avg = _avg_bh_sample_count(
+                ros_database_config, org_id, bh_cluster_uuid, override_ns
+            )
+            inherit_avg = _avg_bh_sample_count(
+                ros_database_config, org_id, bh_cluster_uuid, inherit_ns
+            )
+            assert override_avg > 0 and inherit_avg > 0, "Expected non-zero BH sample counts"
+            assert override_avg < inherit_avg * 0.5, (
+                f"Override namespace ({override_ns}) sample_count avg {override_avg:.1f} "
+                f"should be well below inherited namespace ({inherit_ns}) avg {inherit_avg:.1f}"
+            )
+        finally:
+            delete_business_hours_schedule(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, override_ns
+            )
+            delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+
+    def test_namespace_enabled_false(
+        self,
+        business_hours_feature,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+        org_id: str,
+        ros_database_config: dict,
+        http_session: requests.Session,
+    ):
+        """BH-E2E-009: enabled=false skips business_hours digest generation."""
+        delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+        try:
+            payload = _valid_schedule_payload()
+            payload["enabled"] = False
+            resp = put_business_hours_schedule(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=payload
+            )
+            assert resp.status_code in (200, 202), resp.text
+
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=420
+            ), "Reship did not complete for enabled=false schedule"
+
+            bh_count = _count_digest_rows(
+                ros_database_config, org_id, bh_cluster_uuid, "business_hours"
+            )
+            assert bh_count == 0, (
+                f"enabled=false must not create business_hours digests (found {bh_count})"
+            )
+
+            all_hours_count = _count_digest_rows(
+                ros_database_config, org_id, bh_cluster_uuid, "all_hours"
+            )
+            assert all_hours_count > 0, "all_hours digests should remain after enabled=false PUT"
+        finally:
+            delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+
+    def test_no_historical_data(
+        self,
+        business_hours_feature,
+        ros_api_url: str,
+        bh_auth: dict,
+        org_id: str,
+        ros_database_config: dict,
+        http_session: requests.Session,
+    ):
+        """BH-E2E-010: fresh cluster reship completes immediately with reship_status=complete."""
+        fresh_cluster = _find_cluster_without_digests(ros_database_config, org_id)
+        if not fresh_cluster:
+            pytest.skip(
+                "No registered cluster without digest history; "
+                "register a source without ROS ingest to run BH-E2E-010"
+            )
+
+        delete_business_hours_schedule(http_session, ros_api_url, bh_auth, fresh_cluster)
+        try:
+            resp = put_business_hours_schedule(
+                http_session, ros_api_url, bh_auth, fresh_cluster
+            )
+            assert resp.status_code in (200, 202), resp.text
+
+            assert wait_for_reship_status(
+                http_session, ros_api_url, bh_auth, fresh_cluster, "complete", timeout=120
+            ), "Fresh cluster reship_status should reach complete quickly"
+
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, fresh_cluster, timeout=120
+            ), "reship_pending_since should clear when no historical files exist"
+
+            bh_count = _count_digest_rows(
+                ros_database_config, org_id, fresh_cluster, "business_hours"
+            )
+            assert bh_count == 0, (
+                "Fresh cluster should have no BH digests until first Kafka ingest arrives"
+            )
+        finally:
+            delete_business_hours_schedule(http_session, ros_api_url, bh_auth, fresh_cluster)
+
+    def test_reingestion_sequence(
+        self,
+        business_hours_feature,
+        cluster_config,
+        ros_api_url: str,
+        bh_auth: dict,
+        bh_cluster_uuid: str,
+        org_id: str,
+        ros_database_config: dict,
+        http_session: requests.Session,
+    ):
+        """BH-E2E-011: schedule PUT → reship → digest update → trailing reship on change."""
+        delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+        try:
+            payload_wide = _valid_schedule_payload()
+            payload_wide["schedule"]["start_time"] = "08:00"
+            payload_wide["schedule"]["end_time"] = "17:00"
+            assert put_business_hours_schedule(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=payload_wide
+            ).status_code in (200, 202)
+
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=420
+            ), "Initial reship did not produce dual digests"
+
+            sample_namespaces = _find_namespaces_with_digests(
+                ros_database_config, org_id, bh_cluster_uuid, min_count=1
+            )
+            if not sample_namespaces:
+                pytest.skip("No namespace digest data for reingestion sequence assertion")
+            ns = sample_namespaces[0]
+            wide_avg = _avg_bh_sample_count(
+                ros_database_config, org_id, bh_cluster_uuid, ns
+            )
+            assert wide_avg > 0
+
+            baseline_completions = _count_ros_reship_completions(cluster_config, since_seconds=600)
+
+            payload_narrow = _valid_schedule_payload()
+            payload_narrow["schedule"]["start_time"] = "12:00"
+            payload_narrow["schedule"]["end_time"] = "13:00"
+            resp = put_business_hours_schedule(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=payload_narrow
+            )
+            assert resp.status_code in (200, 202), resp.text
+
+            def trailing_reship_ran():
+                count = _count_ros_reship_completions(cluster_config, since_seconds=600)
+                return count > baseline_completions
+
+            assert wait_for_condition(
+                trailing_reship_ran,
+                timeout=300,
+                interval=15,
+                description="trailing reship after schedule narrowing",
+            ), "Expected masu reship after schedule window change"
+
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Trailing reship did not clear reship_pending"
+
+            narrow_avg = _avg_bh_sample_count(
+                ros_database_config, org_id, bh_cluster_uuid, ns
+            )
+            assert narrow_avg > 0
+            assert narrow_avg < wide_avg * 0.5, (
+                f"Narrowed schedule should reduce BH sample_count ({narrow_avg:.1f} vs {wide_avg:.1f})"
+            )
+
+            get_resp = http_session.get(
+                f"{_bh_settings_base(ros_api_url)}/clusters/{bh_cluster_uuid}",
+                headers=bh_auth,
+                timeout=30,
+            )
+            assert get_resp.status_code == 200, get_resp.text
+            assert get_resp.json().get("schedule", {}).get("start_time") == "12:00"
+            assert wait_for_reship_status(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, "complete", timeout=120
+            )
+        finally:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
 
 
