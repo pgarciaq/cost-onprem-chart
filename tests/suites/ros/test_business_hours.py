@@ -122,6 +122,53 @@ def bh_auth(keycloak_config, cluster_config, http_session):
     return auth
 
 
+def _pick_registered_bh_cluster(
+    ros_api_url: str,
+    bh_auth: dict,
+    http_session: requests.Session,
+    ros_database_config: dict,
+    org_id: str,
+) -> Optional[str]:
+    """Return a cluster registered in ROS clusters with digest data and BH settings access."""
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT DISTINCT c.cluster_uuid::text
+        FROM clusters c
+        JOIN rh_accounts r ON r.id = c.tenant_id AND r.org_id = '{org_id}'
+        JOIN daily_container_digests d
+          ON d.cluster_uuid = c.cluster_uuid::text AND d.org_id = '{org_id}'
+        ORDER BY c.cluster_uuid::text
+        LIMIT 10
+        """,
+        password=ros_database_config["password"],
+    )
+    candidates = [row[0] for row in rows or [] if row and row[0]]
+
+    if not candidates:
+        endpoint = get_recommendations_endpoint(ros_api_url)
+        resp = http_session.get(endpoint, headers=bh_auth, params={"limit": 20}, timeout=60)
+        if resp.status_code == 200:
+            for item in resp.json().get("data", []) or []:
+                cid = item.get("cluster_uuid") or item.get("cluster")
+                if cid and str(cid) not in candidates:
+                    candidates.append(str(cid))
+
+    settings_base = _bh_settings_base(ros_api_url)
+    for cluster_id in candidates:
+        probe = http_session.get(
+            f"{settings_base}/clusters/{cluster_id}",
+            headers=bh_auth,
+            timeout=30,
+        )
+        if probe.status_code == 200:
+            return cluster_id
+    return None
+
+
 @pytest.fixture
 def bh_cluster_uuid(
     ros_api_url: str,
@@ -130,32 +177,13 @@ def bh_cluster_uuid(
     ros_database_config: dict,
     org_id: str,
 ) -> str:
-    """Discover a cluster UUID with container digest data."""
-    endpoint = get_recommendations_endpoint(ros_api_url)
-    resp = http_session.get(endpoint, headers=bh_auth, params={"limit": 5}, timeout=60)
-    if resp.status_code == 200:
-        body = resp.json()
-        for item in body.get("data", []) or []:
-            cid = item.get("cluster_uuid") or item.get("cluster")
-            if cid:
-                return str(cid)
-
-    rows = execute_db_query(
-        ros_database_config["namespace"],
-        ros_database_config["pod_name"],
-        ros_database_config["database"],
-        ros_database_config["user"],
-        f"""
-        SELECT DISTINCT cluster_uuid::text
-        FROM daily_container_digests
-        WHERE org_id = '{org_id}'
-        LIMIT 1
-        """,
-        password=ros_database_config["password"],
+    """Discover a cluster registered in ROS with digest data for business hours E2E."""
+    cluster_id = _pick_registered_bh_cluster(
+        ros_api_url, bh_auth, http_session, ros_database_config, org_id
     )
-    if rows and rows[0][0]:
-        return rows[0][0]
-    pytest.skip("No cluster with digest data for business hours E2E")
+    if cluster_id:
+        return cluster_id
+    pytest.skip("No registered cluster with digest data for business hours E2E")
 
 
 def put_business_hours_schedule(
