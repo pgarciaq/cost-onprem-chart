@@ -15,6 +15,7 @@ iqe-cost-management-plugin/iqe_cost_management/data/openshift/
 
 | Template | Purpose |
 |----------|---------|
+| `ocp_report_business_hours.yml` | Business Hours E2E — 3 nodes, 3 namespaces (daytime/batch/nighttime workloads) with `--ros-ocp-info` |
 | `ocp_report_ros_0.yml` | ROS optimization testing - multiple nodes with varied CPU/memory usage patterns |
 | `ocp_report_advanced.yml` | Complex OCP scenario with multiple nodes, namespaces, volumes, and labels |
 | `ocp_report_advanced_daily.yml` | Same as advanced but with daily data granularity |
@@ -36,6 +37,9 @@ iqe-cost-management-plugin/iqe_cost_management/data/openshift/
 Set the `NISE_IQE_TEMPLATE` environment variable when running tests:
 
 ```bash
+# Use Business Hours E2E template
+NISE_IQE_TEMPLATE=ocp_report_business_hours.yml pytest -v suites/ros/test_business_hours.py
+
 # Use ROS optimization template
 NISE_IQE_TEMPLATE=ocp_report_ros_0.yml pytest -v suites/ui/test_data_validation.py
 
