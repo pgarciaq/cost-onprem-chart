@@ -427,6 +427,56 @@ def _fetch_recommendations_for_bh_container(
     )
 
 
+def _fetch_cluster_recommendations_with_business_hours(
+    http_session: requests.Session,
+    ros_api_url: str,
+    auth_header: dict,
+    cluster_uuid: str,
+    keycloak_config=None,
+    cluster_config=None,
+    max_pages: int = 10,
+    page_size: int = 50,
+) -> tuple[requests.Response, bool]:
+    """Paginate cluster recommendations until any item includes business_hours.
+
+    Avoids per-container workload filters, which fail when digest rows contain
+    API-unsafe names (e.g. ``<none>``).
+    """
+    endpoint = get_recommendations_endpoint(ros_api_url)
+    offset = 0
+    last_resp: Optional[requests.Response] = None
+
+    for _ in range(max_pages):
+        if keycloak_config is not None and cluster_config is not None:
+            auth_header = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
+
+        last_resp = http_session.get(
+            endpoint,
+            headers=auth_header,
+            params={"cluster": cluster_uuid, "limit": page_size, "offset": offset},
+            timeout=60,
+        )
+        if last_resp.status_code != 200:
+            return last_resp, False
+
+        body = last_resp.json()
+        if _recommendations_include_business_hours(body):
+            return last_resp, True
+
+        data = body.get("data", []) or []
+        if len(data) < page_size:
+            break
+
+        meta = body.get("meta", {})
+        total = meta.get("count")
+        offset += page_size
+        if isinstance(total, int) and offset >= total:
+            break
+
+    assert last_resp is not None
+    return last_resp, False
+
+
 def _scale_masu_to_zero(cluster_config, timeout: int = 180) -> None:
     """Scale MASU to zero and wait until cost-processor pods are fully gone."""
     masu_deploy = f"{cluster_config.helm_release_name}-koku-masu"
@@ -719,7 +769,11 @@ def wait_for_reship_status(
     )
 
 
-def _count_ros_reship_completions(cluster_config, since_seconds: int = 600) -> int:
+def _count_ros_reship_completions(
+    cluster_config,
+    since_seconds: int = 600,
+    cluster_uuid: Optional[str] = None,
+) -> int:
     """Count 'reship completed' log lines on ros-api (one per masu reship_ros call)."""
     deploy = f"{cluster_config.helm_release_name}-ros-api"
     result = run_oc_command([
@@ -730,7 +784,15 @@ def _count_ros_reship_completions(cluster_config, since_seconds: int = 600) -> i
     ], check=False)
     if result.returncode != 0:
         return 0
-    return result.stdout.count("reship completed")
+    count = 0
+    cluster_marker = f"cluster_uuid={cluster_uuid}" if cluster_uuid else None
+    for line in result.stdout.splitlines():
+        if "reship completed" not in line:
+            continue
+        if cluster_marker and cluster_marker not in line:
+            continue
+        count += 1
+    return count
 
 
 def _wait_for_reship_quiescence(cluster_config, quiet_seconds: int = 30, timeout: int = 120) -> bool:
@@ -795,27 +857,18 @@ class TestBusinessHoursE2E:
                 ros_database_config, org_id, bh_cluster_uuid, timeout=420
             ), "Timed out waiting for dual schedule_type digests"
 
-            container = _find_container_with_bh_digests(
-                ros_database_config, org_id, bh_cluster_uuid
-            )
-            assert container is not None, (
-                "No container with business_hours digests after reship; "
-                "ensure cluster has ROS CSV history and ROS_BUSINESS_HOURS_ENABLED on processor"
-            )
-
-            rec_resp = _fetch_recommendations_for_bh_container(
+            rec_resp, found_bh = _fetch_cluster_recommendations_with_business_hours(
                 http_session,
                 ros_api_url,
                 bh_auth,
                 bh_cluster_uuid,
-                container,
                 keycloak_config,
                 cluster_config,
             )
             assert rec_resp.status_code == 200, rec_resp.text
-            assert _recommendations_include_business_hours(rec_resp.json()), (
-                f"Expected business_hours on {container['namespace']}/"
-                f"{container['workload']}/{container['container']}"
+            assert found_bh, (
+                "Expected business_hours in cluster recommendations after reship; "
+                "ensure cluster has ROS CSV history and ROS_BUSINESS_HOURS_ENABLED on processor"
             )
         finally:
             delete_business_hours_schedule(
@@ -1509,7 +1562,11 @@ class TestBusinessHoursExtendedScenarios:
         """BH-E2E-015: Schedule change during active reship triggers trailing reship."""
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
         try:
-            baseline_completions = _count_ros_reship_completions(cluster_config, since_seconds=120)
+            assert _wait_for_reship_quiescence(
+                cluster_config, quiet_seconds=45, timeout=180
+            ), "Cluster reship activity did not settle before trailing-reship burst"
+
+            burst_started = time.time()
 
             payload_a = _valid_schedule_payload()
             payload_a["schedule"]["start_time"] = "08:00"
@@ -1554,9 +1611,13 @@ class TestBusinessHoursExtendedScenarios:
             assert get_resp.json().get("schedule", {}).get("start_time") == "10:00"
 
             def reships_bounded():
-                count = _count_ros_reship_completions(cluster_config, since_seconds=300)
-                delta = count - baseline_completions
-                return 1 <= delta <= 2
+                elapsed = max(60, int(time.time() - burst_started) + 15)
+                count = _count_ros_reship_completions(
+                    cluster_config,
+                    since_seconds=elapsed,
+                    cluster_uuid=bh_cluster_uuid,
+                )
+                return 1 <= count <= 2
 
             assert wait_for_condition(
                 reships_bounded, timeout=300, interval=15, description="trailing reship bound"
@@ -1821,14 +1882,18 @@ class TestBusinessHoursExtendedScenarios:
 
             def reships_started() -> bool:
                 elapsed = max(60, int(time.time() - burst_started) + 15)
-                return _count_ros_reship_completions(cluster_config, since_seconds=elapsed) >= 1
+                return _count_ros_reship_completions(
+                    cluster_config, since_seconds=elapsed, cluster_uuid=bh_cluster_uuid
+                ) >= 1
 
             assert wait_for_condition(
                 reships_started, timeout=300, interval=15, description="concurrent PUT reships"
             ), "Expected masu reship_ros to run after concurrent schedule PUT burst"
 
             elapsed = max(60, int(time.time() - burst_started) + 15)
-            reship_count = _count_ros_reship_completions(cluster_config, since_seconds=elapsed)
+            reship_count = _count_ros_reship_completions(
+                cluster_config, since_seconds=elapsed, cluster_uuid=bh_cluster_uuid
+            )
             assert 1 <= reship_count <= 2, (
                 f"Expected at most 2 masu reship_ros executions for concurrent schedule PUT burst, "
                 f"saw {reship_count}"
