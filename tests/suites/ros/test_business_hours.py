@@ -21,7 +21,6 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Optional
-from urllib.parse import quote
 
 import pytest
 import requests
@@ -350,13 +349,6 @@ def _is_api_safe_param_value(value: str, allow_dot: bool = False) -> bool:
     return True
 
 
-def _encode_recommendations_query(params: dict[str, str]) -> str:
-    """Build a query string with strict URL encoding for ROS filter params."""
-    return "&".join(
-        f"{quote(key, safe='')}={quote(value, safe='')}" for key, value in params.items()
-    )
-
-
 def _find_container_with_bh_digests(
     ros_database_config: dict,
     org_id: str,
@@ -384,6 +376,10 @@ def _find_container_with_bh_digests(
         if not row or not row[0]:
             continue
         ns, workload, workload_type, container = row
+        ns = (ns or "").strip()
+        workload = (workload or "").strip()
+        workload_type = (workload_type or "").strip()
+        container = (container or "").strip()
         candidate = {
             "namespace": ns,
             "workload": workload,
@@ -415,21 +411,18 @@ def _fetch_recommendations_for_bh_container(
     if keycloak_config is not None and cluster_config is not None:
         auth_header = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
 
-    # Encode filter values strictly — workload names may contain dots or other
-    # characters that must be URL-encoded for the ROS API query parser.
-    query = _encode_recommendations_query(
-        {
+    # Let requests encode query params once (manual encoding can double-encode %).
+    return http_session.get(
+        get_recommendations_endpoint(ros_api_url),
+        headers=auth_header,
+        params={
             "cluster": cluster_uuid,
             "project": container["namespace"],
             "workload": container["workload"],
             "workload_type": container["workload_type"],
             "container": container["container"],
-            "limit": "5",
-        }
-    )
-    return http_session.get(
-        f"{get_recommendations_endpoint(ros_api_url)}?{query}",
-        headers=auth_header,
+            "limit": 5,
+        },
         timeout=60,
     )
 
