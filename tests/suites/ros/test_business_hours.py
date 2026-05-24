@@ -20,8 +20,8 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Optional
-from urllib.parse import quote, urlencode
+from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -38,6 +38,16 @@ from utils import (
 )
 
 # BH-E2E IDs mapped to test functions below.
+
+# Mirrors ros-ocp-backend validWorkloadTypes (internal/api/common.go).
+_VALID_WORKLOAD_TYPES = frozenset({
+    "daemonset",
+    "deployment",
+    "deploymentconfig",
+    "replicaset",
+    "replicationcontroller",
+    "statefulset",
+})
 
 
 def _bh_settings_base(ros_api_url: str) -> str:
@@ -330,12 +340,21 @@ def _is_api_safe_param_value(value: str, allow_dot: bool = False) -> bool:
     if not value:
         return False
     for ch in value:
-        if ch.isalnum() or ch in "-_":
+        if ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9"):
+            continue
+        if ch in "-_":
             continue
         if allow_dot and ch == ".":
             continue
         return False
     return True
+
+
+def _encode_recommendations_query(params: dict[str, str]) -> str:
+    """Build a query string with strict URL encoding for ROS filter params."""
+    return "&".join(
+        f"{quote(key, safe='')}={quote(value, safe='')}" for key, value in params.items()
+    )
 
 
 def _find_container_with_bh_digests(
@@ -371,12 +390,14 @@ def _find_container_with_bh_digests(
             "workload_type": workload_type,
             "container": container,
         }
+        wl_type = (workload_type or "").lower()
         if (
             _is_api_safe_param_value(ns)
             and _is_api_safe_param_value(workload, allow_dot=True)
-            and _is_api_safe_param_value(workload_type)
+            and wl_type in _VALID_WORKLOAD_TYPES
             and _is_api_safe_param_value(container)
         ):
+            candidate["workload_type"] = wl_type
             return candidate
     return None
 
@@ -394,20 +415,17 @@ def _fetch_recommendations_for_bh_container(
     if keycloak_config is not None and cluster_config is not None:
         auth_header = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
 
-    # Encode filter values strictly — workload names may contain characters
-    # (e.g. dots, underscores in CronJob names) that must be URL-encoded for
-    # the ROS API query parser.
-    query = urlencode(
+    # Encode filter values strictly — workload names may contain dots or other
+    # characters that must be URL-encoded for the ROS API query parser.
+    query = _encode_recommendations_query(
         {
             "cluster": cluster_uuid,
             "project": container["namespace"],
             "workload": container["workload"],
             "workload_type": container["workload_type"],
             "container": container["container"],
-            "limit": 5,
-        },
-        quote_via=quote,
-        safe="",
+            "limit": "5",
+        }
     )
     return http_session.get(
         f"{get_recommendations_endpoint(ros_api_url)}?{query}",
@@ -696,9 +714,11 @@ def wait_for_reship_status(
     cluster_id: str,
     expected_status: str,
     timeout: int = 300,
+    auth_refresher: Optional[Callable[[], dict]] = None,
 ) -> bool:
     def check():
-        body = _get_cluster_reship_status(http_session, ros_api_url, auth_header, cluster_id)
+        auth = auth_refresher() if auth_refresher else auth_header
+        body = _get_cluster_reship_status(http_session, ros_api_url, auth, cluster_id)
         return body.get("reship_status") == expected_status
 
     return wait_for_condition(
@@ -1170,13 +1190,14 @@ class TestBusinessHoursE2E:
         cluster_config,
     ):
         """BH-E2E-011: schedule PUT → reship → digest update → trailing reship on change."""
-        delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+        auth = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
+        delete_business_hours_schedule(http_session, ros_api_url, auth, bh_cluster_uuid)
         try:
             payload_wide = _valid_schedule_payload()
             payload_wide["schedule"]["start_time"] = "08:00"
             payload_wide["schedule"]["end_time"] = "17:00"
             assert put_business_hours_schedule(
-                http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=payload_wide
+                http_session, ros_api_url, auth, bh_cluster_uuid, payload=payload_wide
             ).status_code in (200, 202)
 
             assert wait_for_reship_pending_cleared(
@@ -1245,7 +1266,15 @@ class TestBusinessHoursE2E:
             assert get_resp.status_code == 200, get_resp.text
             assert get_resp.json().get("schedule", {}).get("start_time") == "12:00"
             assert wait_for_reship_status(
-                http_session, ros_api_url, auth, bh_cluster_uuid, "complete", timeout=120
+                http_session,
+                ros_api_url,
+                auth,
+                bh_cluster_uuid,
+                "complete",
+                timeout=120,
+                auth_refresher=lambda: _fresh_bh_auth(
+                    keycloak_config, cluster_config, http_session
+                ),
             )
         finally:
             delete_business_hours_schedule(
