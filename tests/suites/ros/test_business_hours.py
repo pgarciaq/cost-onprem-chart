@@ -1608,7 +1608,10 @@ class TestBusinessHoursExtendedScenarios:
                 timeout=30,
             )
             assert get_resp.status_code == 200, get_resp.text
-            assert get_resp.json().get("schedule", {}).get("start_time") == "10:00"
+            final_start = get_resp.json().get("schedule", {}).get("start_time")
+            assert final_start in ("09:00", "10:00"), (
+                f"Concurrent PUT burst should persist one of the racing schedules, got {final_start!r}"
+            )
 
             def reships_bounded():
                 elapsed = max(60, int(time.time() - burst_started) + 15)
