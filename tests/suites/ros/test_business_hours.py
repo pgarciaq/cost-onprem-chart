@@ -290,10 +290,126 @@ def wait_for_reship_pending_cleared(
     )
 
 
+def _recommendations_include_business_hours(body: dict) -> bool:
+    """Return True if any recommendation engine includes a business_hours block."""
+    for item in body.get("data", []) or []:
+        terms = (
+            item.get("recommendations", {}).get("recommendation_terms")
+            or item.get("recommendations", {})
+        )
+        if not isinstance(terms, dict):
+            continue
+        for term in terms.values():
+            if not isinstance(term, dict):
+                continue
+            engines = term.get("recommendation_engines") or {}
+            for profile in ("cost", "performance"):
+                engine = engines.get(profile) or {}
+                bh = engine.get("business_hours")
+                if isinstance(bh, dict) and bh:
+                    return True
+    return False
+
+
 def _find_business_hours_in_recommendations(body: dict) -> bool:
-    """Return True if any recommendation engine includes business_hours."""
-    text = json.dumps(body)
-    return "business_hours" in text
+    """Return True if any recommendation includes business_hours (structured check)."""
+    return _recommendations_include_business_hours(body)
+
+
+def _find_container_with_bh_digests(
+    ros_database_config: dict,
+    org_id: str,
+    cluster_uuid: str,
+) -> Optional[dict[str, str]]:
+    """Return one container row that has business_hours digest data."""
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT namespace, workload, workload_type, container_name
+        FROM daily_container_digests
+        WHERE org_id = '{org_id}'
+          AND cluster_uuid = '{cluster_uuid}'::uuid
+          AND schedule_type = 'business_hours'
+          AND sample_count > 0
+        ORDER BY bucket_date DESC
+        LIMIT 1
+        """,
+        password=ros_database_config["password"],
+    )
+    if not rows or not rows[0][0]:
+        return None
+    ns, workload, workload_type, container = rows[0]
+    return {
+        "namespace": ns,
+        "workload": workload,
+        "workload_type": workload_type,
+        "container": container,
+    }
+
+
+def _fetch_recommendations_for_bh_container(
+    http_session: requests.Session,
+    ros_api_url: str,
+    auth_header: dict,
+    cluster_uuid: str,
+    container: dict[str, str],
+) -> requests.Response:
+    """Query recommendations scoped to a container known to have BH digests."""
+    params = {
+        "cluster": cluster_uuid,
+        "project": container["namespace"],
+        "workload": container["workload"],
+        "workload_type": container["workload_type"],
+        "container": container["container"],
+        "limit": 5,
+    }
+    return http_session.get(
+        get_recommendations_endpoint(ros_api_url),
+        headers=auth_header,
+        params=params,
+        timeout=60,
+    )
+
+
+def _scale_masu_to_zero(cluster_config, timeout: int = 180) -> None:
+    """Scale MASU to zero and wait until cost-processor pods are fully gone."""
+    masu_deploy = f"{cluster_config.helm_release_name}-koku-masu"
+    ns = cluster_config.namespace
+    run_oc_command([
+        "scale", "deployment", masu_deploy, "-n", ns, "--replicas=0",
+    ], check=False)
+
+    def masu_pods_gone() -> bool:
+        result = run_oc_command([
+            "get", "pods", "-n", ns,
+            "-l", "app.kubernetes.io/component=cost-processor",
+            "-o", "jsonpath={.items[*].metadata.name}",
+        ], check=False)
+        if result.returncode != 0:
+            return False
+        pod_names = [p for p in result.stdout.strip().split() if p]
+        if not pod_names:
+            return True
+        # Terminating pods can still serve traffic; force-remove stragglers.
+        run_oc_command([
+            "delete", "pod", "-n", ns,
+            "-l", "app.kubernetes.io/component=cost-processor",
+            "--force", "--grace-period=0",
+        ], check=False)
+        return False
+
+    assert wait_for_condition(
+        masu_pods_gone,
+        timeout=timeout,
+        interval=5,
+        description="masu pods terminated",
+    ), (
+        "masu must be fully scaled down before PUT "
+        "(Terminating pods can still accept traffic)"
+    )
 
 
 RESHIP_PROMETHEUS_METRICS = (
@@ -622,14 +738,22 @@ class TestBusinessHoursE2E:
                 ros_database_config, org_id, bh_cluster_uuid, timeout=420
             ), "Timed out waiting for dual schedule_type digests"
 
-            rec_resp = http_session.get(
-                get_recommendations_endpoint(ros_api_url),
-                headers=bh_auth,
-                params={"cluster": bh_cluster_uuid, "limit": 20},
-                timeout=60,
+            container = _find_container_with_bh_digests(
+                ros_database_config, org_id, bh_cluster_uuid
+            )
+            assert container is not None, (
+                "No container with business_hours digests after reship; "
+                "ensure cluster has ROS CSV history and ROS_BUSINESS_HOURS_ENABLED on processor"
+            )
+
+            rec_resp = _fetch_recommendations_for_bh_container(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, container
             )
             assert rec_resp.status_code == 200, rec_resp.text
-            assert _find_business_hours_in_recommendations(rec_resp.json())
+            assert _recommendations_include_business_hours(rec_resp.json()), (
+                f"Expected business_hours on {container['namespace']}/"
+                f"{container['workload']}/{container['container']}"
+            )
         finally:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
 
@@ -737,24 +861,7 @@ class TestBusinessHoursE2E:
 
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
         try:
-            run_oc_command([
-                "scale", "deployment", masu_deploy, "-n", ns, "--replicas=0",
-            ], check=False)
-
-            def masu_pods_gone():
-                result = run_oc_command([
-                    "get", "pods", "-n", ns,
-                    "-l", "app.kubernetes.io/component=cost-processor",
-                    "-o", "jsonpath={.items[*].metadata.name}",
-                ], check=False)
-                return result.returncode == 0 and not result.stdout.strip()
-
-            assert wait_for_condition(
-                masu_pods_gone,
-                timeout=90,
-                interval=5,
-                description="masu pods terminated",
-            ), "masu must be fully scaled down before PUT (Terminating pods can still accept traffic)"
+            _scale_masu_to_zero(cluster_config, timeout=180)
 
             resp = put_business_hours_schedule(
                 http_session, ros_api_url, bh_auth, bh_cluster_uuid
@@ -835,6 +942,21 @@ class TestBusinessHoursE2E:
                 ros_database_config, org_id, bh_cluster_uuid, timeout=600
             ), "Cluster schedule reship did not complete"
 
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, override_ns, timeout=420
+            ), "Timed out waiting for dual digests under cluster schedule"
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, inherit_ns, timeout=420
+            ), "Timed out waiting for dual digests in inherited namespace"
+
+            inherit_avg = _avg_bh_sample_count(
+                ros_database_config, org_id, bh_cluster_uuid, inherit_ns
+            )
+            override_wide_avg = _avg_bh_sample_count(
+                ros_database_config, org_id, bh_cluster_uuid, override_ns
+            )
+            assert inherit_avg > 0 and override_wide_avg > 0, "Expected non-zero BH sample counts"
+
             ns_payload = _valid_schedule_payload()
             ns_payload["schedule"]["start_time"] = "12:00"
             ns_payload["schedule"]["end_time"] = "13:00"
@@ -851,12 +973,28 @@ class TestBusinessHoursE2E:
                 ros_database_config, org_id, bh_cluster_uuid, timeout=600
             ), "Namespace override reship did not complete"
 
-            assert wait_for_dual_digests(
-                ros_database_config, org_id, bh_cluster_uuid, override_ns, timeout=420
-            ), "Timed out waiting for dual digests in override namespace"
-            assert wait_for_dual_digests(
-                ros_database_config, org_id, bh_cluster_uuid, inherit_ns, timeout=420
-            ), "Timed out waiting for dual digests in inherited namespace"
+            def override_narrower_than_inherited() -> bool:
+                override_avg = _avg_bh_sample_count(
+                    ros_database_config, org_id, bh_cluster_uuid, override_ns
+                )
+                inherited_avg = _avg_bh_sample_count(
+                    ros_database_config, org_id, bh_cluster_uuid, inherit_ns
+                )
+                return (
+                    override_avg > 0
+                    and inherited_avg > 0
+                    and override_avg < inherited_avg
+                )
+
+            assert wait_for_condition(
+                override_narrower_than_inherited,
+                timeout=420,
+                interval=20,
+                description="namespace override BH sample_count below inherited",
+            ), (
+                f"Override namespace ({override_ns}) should have fewer in-window samples "
+                f"than inherited namespace ({inherit_ns}) after 1h vs 9h schedules"
+            )
 
             override_avg = _avg_bh_sample_count(
                 ros_database_config, org_id, bh_cluster_uuid, override_ns
@@ -864,18 +1002,20 @@ class TestBusinessHoursE2E:
             inherit_avg = _avg_bh_sample_count(
                 ros_database_config, org_id, bh_cluster_uuid, inherit_ns
             )
-            assert override_avg > 0 and inherit_avg > 0, "Expected non-zero BH sample counts"
             assert override_avg < inherit_avg, (
                 f"Override namespace ({override_ns}) sample_count avg {override_avg:.1f} "
                 f"should be below inherited namespace ({inherit_ns}) avg {inherit_avg:.1f}"
             )
-            # 1-hour override vs 9-hour cluster schedule. Uniform data would be ~11%;
-            # real clusters often concentrate usage in business hours, so use a looser
-            # bound than 0.5 — we only require a meaningful reduction, not half.
+            # 1-hour override vs 9-hour cluster schedule (~4 vs ~36 quarter-hour samples/day).
             assert override_avg <= inherit_avg * 0.85, (
                 f"Override namespace ({override_ns}) sample_count avg {override_avg:.1f} "
                 f"should be meaningfully below inherited namespace ({inherit_ns}) "
                 f"avg {inherit_avg:.1f}"
+            )
+            # Same namespace should shrink after applying the narrow override (sanity check).
+            assert override_avg < override_wide_avg * 0.85, (
+                f"Namespace override should reduce in-window samples for {override_ns} "
+                f"({override_avg:.1f} vs wide cluster window {override_wide_avg:.1f})"
             )
         finally:
             delete_business_hours_schedule(
@@ -1360,15 +1500,17 @@ class TestBusinessHoursExtendedScenarios:
             assert resp.status_code in (200, 202), resp.text
 
             def bh_visible_in_api():
-                rec_resp = http_session.get(
-                    get_recommendations_endpoint(ros_api_url),
-                    headers=bh_auth,
-                    params={"cluster": bh_cluster_uuid, "limit": 20},
-                    timeout=60,
+                container = _find_container_with_bh_digests(
+                    ros_database_config, org_id, bh_cluster_uuid
+                )
+                if not container:
+                    return False
+                rec_resp = _fetch_recommendations_for_bh_container(
+                    http_session, ros_api_url, bh_auth, bh_cluster_uuid, container
                 )
                 if rec_resp.status_code != 200:
                     return False
-                return _find_business_hours_in_recommendations(rec_resp.json())
+                return _recommendations_include_business_hours(rec_resp.json())
 
             assert wait_for_condition(
                 bh_visible_in_api,
