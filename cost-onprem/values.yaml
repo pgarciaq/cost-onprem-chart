@@ -78,6 +78,8 @@ ros:
     metricsPort: 9000
     logLevel: INFO
     serviceName: ros-processor
+    # Must match api.businessHoursEnabled so ingestion writes business_hours digests.
+    businessHoursEnabled: true
 
     # Kafka consumer configuration
     kafkaConsumerGroupId: ros-processor
