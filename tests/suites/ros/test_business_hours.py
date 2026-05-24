@@ -555,11 +555,21 @@ def _count_ros_reship_completions(cluster_config, since_seconds: int = 600) -> i
         "logs", f"deployment/{deploy}",
         "-n", cluster_config.namespace,
         f"--since={since_seconds}s",
-        "--tail=2000",
+        "--tail=5000",
     ], check=False)
     if result.returncode != 0:
         return 0
     return result.stdout.count("reship completed")
+
+
+def _wait_for_reship_quiescence(cluster_config, quiet_seconds: int = 30, timeout: int = 120) -> bool:
+    """Wait until no reship completed log lines appear in the recent window."""
+    return wait_for_condition(
+        lambda: _count_ros_reship_completions(cluster_config, since_seconds=quiet_seconds) == 0,
+        timeout=timeout,
+        interval=5,
+        description=f"no reship completions in last {quiet_seconds}s",
+    )
 
 
 def _grep_pod_logs(
@@ -626,7 +636,6 @@ class TestBusinessHoursE2E:
     def test_schedule_change_trailing_reship(
         self,
         business_hours_feature,
-        cluster_config,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -641,12 +650,13 @@ class TestBusinessHoursE2E:
                 http_session, ros_api_url, bh_auth, bh_cluster_uuid
             ).status_code in (200, 202)
 
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Initial reship did not complete"
+
             assert wait_for_dual_digests(
                 ros_database_config, org_id, bh_cluster_uuid, timeout=420
             ), "Timed out waiting for initial dual schedule_type digests"
-
-            # daily_container_digests has no updated_at column; detect reship via ros-api logs.
-            baseline_completions = _count_ros_reship_completions(cluster_config, since_seconds=600)
 
             payload = _valid_schedule_payload()
             payload["schedule"]["start_time"] = "09:00"
@@ -655,16 +665,20 @@ class TestBusinessHoursE2E:
             )
             assert resp.status_code in (200, 202), resp.text
 
-            def reship_after_schedule_change():
-                count = _count_ros_reship_completions(cluster_config, since_seconds=600)
-                return count > baseline_completions
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Schedule change reship did not complete"
 
-            assert wait_for_condition(
-                reship_after_schedule_change,
-                timeout=300,
-                interval=15,
-                description="reship after schedule change",
-            ), "Expected masu reship to run after schedule start_time change"
+            get_resp = http_session.get(
+                f"{_bh_settings_base(ros_api_url)}/clusters/{bh_cluster_uuid}",
+                headers=bh_auth,
+                timeout=30,
+            )
+            assert get_resp.status_code == 200, get_resp.text
+            assert get_resp.json().get("schedule", {}).get("start_time") == "09:00"
+            assert wait_for_reship_status(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, "complete", timeout=120
+            )
         finally:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
 
@@ -1543,11 +1557,17 @@ class TestBusinessHoursExtendedScenarios:
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
+        org_id: str,
+        ros_database_config: dict,
     ):
         """BH-E2E-020: Concurrent PUTs result in at most two masu reship executions."""
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
         try:
-            baseline = _count_ros_reship_completions(cluster_config, since_seconds=60)
+            assert _wait_for_reship_quiescence(cluster_config, quiet_seconds=45, timeout=180), (
+                "Cluster reship activity did not settle before concurrent PUT burst"
+            )
+
+            burst_started = time.time()
 
             def put_with_start(start_time: str) -> requests.Response:
                 payload = _valid_schedule_payload()
@@ -1563,13 +1583,26 @@ class TestBusinessHoursExtendedScenarios:
                     r = fut.result()
                     assert r.status_code in (200, 202), r.text
 
-            def reships_at_most_two():
-                total = _count_ros_reship_completions(cluster_config, since_seconds=300)
-                delta = total - baseline
-                return 1 <= delta <= 2
+            def reships_started() -> bool:
+                elapsed = max(60, int(time.time() - burst_started) + 15)
+                return _count_ros_reship_completions(cluster_config, since_seconds=elapsed) >= 1
 
             assert wait_for_condition(
-                reships_at_most_two, timeout=300, interval=15, description="concurrent PUT reships"
-            ), "Expected at most 2 masu reship_ros executions for concurrent schedule PUT burst"
+                reships_started, timeout=300, interval=15, description="concurrent PUT reships"
+            ), "Expected masu reship_ros to run after concurrent schedule PUT burst"
+
+            elapsed = max(60, int(time.time() - burst_started) + 15)
+            reship_count = _count_ros_reship_completions(cluster_config, since_seconds=elapsed)
+            assert 1 <= reship_count <= 2, (
+                f"Expected at most 2 masu reship_ros executions for concurrent schedule PUT burst, "
+                f"saw {reship_count}"
+            )
+
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Concurrent PUT reship did not complete"
+            assert wait_for_reship_status(
+                http_session, ros_api_url, bh_auth, bh_cluster_uuid, "complete", timeout=120
+            )
         finally:
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
