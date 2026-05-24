@@ -109,6 +109,7 @@ spec:
               value: {{ .Values.ros.processor.businessHoursEnabled | default .Values.ros.api.businessHoursEnabled | quote }}
             - name: ROS_BUSINESS_HOURS_RESHIP_FORWARD_ONLY_FALLBACK
               value: {{ .Values.ros.api.reshipForwardOnlyFallback | quote }}
+{{- include "cost-onprem.ros.thresholdEnv" . }}
             # SSL_CERT_FILE is used by Go's crypto/x509 to load CA certificates
             # Points to combined bundle with system CAs + OpenShift cluster CA + Service CA
             - name: SSL_CERT_FILE
