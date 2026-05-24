@@ -432,6 +432,36 @@ def _find_namespaces_with_digests(
     return namespaces
 
 
+def _find_namespace_with_bh_samples(
+    ros_database_config: dict,
+    org_id: str,
+    cluster_uuid: str,
+) -> tuple[Optional[str], float]:
+    """Return the namespace with the highest avg business_hours sample_count, if any."""
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT namespace, COALESCE(AVG(sample_count), 0)::text
+        FROM daily_container_digests
+        WHERE org_id = '{org_id}'
+          AND cluster_uuid = '{cluster_uuid}'::uuid
+          AND schedule_type = 'business_hours'
+          AND namespace <> ''
+          AND sample_count > 0
+        GROUP BY namespace
+        ORDER BY AVG(sample_count) DESC
+        LIMIT 1
+        """,
+        password=ros_database_config["password"],
+    )
+    if not rows or not rows[0][0]:
+        return None, 0.0
+    return rows[0][0], float(rows[0][1] or 0)
+
+
 def _avg_bh_sample_count(
     ros_database_config: dict,
     org_id: str,
@@ -913,7 +943,6 @@ class TestBusinessHoursE2E:
     def test_reingestion_sequence(
         self,
         business_hours_feature,
-        cluster_config,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -931,22 +960,27 @@ class TestBusinessHoursE2E:
                 http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=payload_wide
             ).status_code in (200, 202)
 
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Initial reship did not complete"
+
             assert wait_for_dual_digests(
                 ros_database_config, org_id, bh_cluster_uuid, timeout=420
             ), "Initial reship did not produce dual digests"
 
-            sample_namespaces = _find_namespaces_with_digests(
-                ros_database_config, org_id, bh_cluster_uuid, min_count=1
-            )
-            if not sample_namespaces:
-                pytest.skip("No namespace digest data for reingestion sequence assertion")
-            ns = sample_namespaces[0]
-            wide_avg = _avg_bh_sample_count(
-                ros_database_config, org_id, bh_cluster_uuid, ns
-            )
-            assert wide_avg > 0
+            def namespace_with_wide_samples() -> tuple[Optional[str], float]:
+                return _find_namespace_with_bh_samples(
+                    ros_database_config, org_id, bh_cluster_uuid
+                )
 
-            baseline_completions = _count_ros_reship_completions(cluster_config, since_seconds=600)
+            assert wait_for_condition(
+                lambda: namespace_with_wide_samples()[0] is not None,
+                timeout=420,
+                interval=15,
+                description="namespace with positive BH sample_count after wide schedule",
+            ), "No namespace with business_hours samples after wide schedule reship"
+            ns, wide_avg = namespace_with_wide_samples()
+            assert wide_avg > 0
 
             payload_narrow = _valid_schedule_payload()
             payload_narrow["schedule"]["start_time"] = "12:00"
@@ -956,20 +990,23 @@ class TestBusinessHoursE2E:
             )
             assert resp.status_code in (200, 202), resp.text
 
-            def trailing_reship_ran():
-                count = _count_ros_reship_completions(cluster_config, since_seconds=600)
-                return count > baseline_completions
+            # Digest sample_count is the durable signal that trailing re-ingestion ran.
+            # Log-based reship counting is flaky after pod restarts during deploys.
+            def narrow_samples_reduced() -> bool:
+                narrow_avg = _avg_bh_sample_count(
+                    ros_database_config, org_id, bh_cluster_uuid, ns
+                )
+                return narrow_avg > 0 and narrow_avg < wide_avg * 0.6
 
             assert wait_for_condition(
-                trailing_reship_ran,
-                timeout=300,
-                interval=15,
-                description="trailing reship after schedule narrowing",
-            ), "Expected masu reship after schedule window change"
-
-            assert wait_for_reship_pending_cleared(
-                ros_database_config, org_id, bh_cluster_uuid, timeout=600
-            ), "Trailing reship did not clear reship_pending"
+                narrow_samples_reduced,
+                timeout=600,
+                interval=20,
+                description="BH sample_count reduced after narrowed schedule reingestion",
+            ), (
+                f"Expected narrowed schedule to reduce BH samples for {ns} "
+                f"(wide avg {wide_avg:.1f})"
+            )
 
             narrow_avg = _avg_bh_sample_count(
                 ros_database_config, org_id, bh_cluster_uuid, ns
