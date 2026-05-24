@@ -325,6 +325,19 @@ def _find_business_hours_in_recommendations(body: dict) -> bool:
     return _recommendations_include_business_hours(body)
 
 
+def _is_api_safe_param_value(value: str, allow_dot: bool = False) -> bool:
+    """Match ros-ocp-backend sanitizeParamValue / isCharSafeRFC1123 rules."""
+    if not value:
+        return False
+    for ch in value:
+        if ch.isalnum() or ch in "-_":
+            continue
+        if allow_dot and ch == ".":
+            continue
+        return False
+    return True
+
+
 def _find_container_with_bh_digests(
     ros_database_config: dict,
     org_id: str,
@@ -344,19 +357,28 @@ def _find_container_with_bh_digests(
           AND schedule_type = 'business_hours'
           AND sample_count > 0
         ORDER BY bucket_date DESC
-        LIMIT 1
+        LIMIT 20
         """,
         password=ros_database_config["password"],
     )
-    if not rows or not rows[0][0]:
-        return None
-    ns, workload, workload_type, container = rows[0]
-    return {
-        "namespace": ns,
-        "workload": workload,
-        "workload_type": workload_type,
-        "container": container,
-    }
+    for row in rows or []:
+        if not row or not row[0]:
+            continue
+        ns, workload, workload_type, container = row
+        candidate = {
+            "namespace": ns,
+            "workload": workload,
+            "workload_type": workload_type,
+            "container": container,
+        }
+        if (
+            _is_api_safe_param_value(ns)
+            and _is_api_safe_param_value(workload, allow_dot=True)
+            and _is_api_safe_param_value(workload_type)
+            and _is_api_safe_param_value(container)
+        ):
+            return candidate
+    return None
 
 
 def _fetch_recommendations_for_bh_container(
