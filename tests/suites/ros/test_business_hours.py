@@ -21,6 +21,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
+from urllib.parse import quote, urlencode
 
 import pytest
 import requests
@@ -119,6 +120,14 @@ def bh_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
     if not auth:
         pytest.skip("Could not obtain JWT token")
+    return auth
+
+
+def _fresh_bh_auth(keycloak_config, cluster_config, http_session: requests.Session) -> dict:
+    """Obtain a new JWT (Keycloak tokens expire after ~5 minutes)."""
+    auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+    if not auth:
+        pytest.fail("Could not obtain JWT token")
     return auth
 
 
@@ -356,20 +365,31 @@ def _fetch_recommendations_for_bh_container(
     auth_header: dict,
     cluster_uuid: str,
     container: dict[str, str],
+    keycloak_config=None,
+    cluster_config=None,
 ) -> requests.Response:
     """Query recommendations scoped to a container known to have BH digests."""
-    params = {
-        "cluster": cluster_uuid,
-        "project": container["namespace"],
-        "workload": container["workload"],
-        "workload_type": container["workload_type"],
-        "container": container["container"],
-        "limit": 5,
-    }
+    if keycloak_config is not None and cluster_config is not None:
+        auth_header = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
+
+    # Encode filter values strictly — workload names may contain characters
+    # (e.g. dots, underscores in CronJob names) that must be URL-encoded for
+    # the ROS API query parser.
+    query = urlencode(
+        {
+            "cluster": cluster_uuid,
+            "project": container["namespace"],
+            "workload": container["workload"],
+            "workload_type": container["workload_type"],
+            "container": container["container"],
+            "limit": 5,
+        },
+        quote_via=quote,
+        safe="",
+    )
     return http_session.get(
-        get_recommendations_endpoint(ros_api_url),
+        f"{get_recommendations_endpoint(ros_api_url)}?{query}",
         headers=auth_header,
-        params=params,
         timeout=60,
     )
 
@@ -725,6 +745,8 @@ class TestBusinessHoursE2E:
         org_id: str,
         ros_database_config: dict,
         http_session: requests.Session,
+        keycloak_config,
+        cluster_config,
     ):
         """BH-E2E-001: schedule → dual digests → API shows business_hours CPU."""
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
@@ -747,7 +769,13 @@ class TestBusinessHoursE2E:
             )
 
             rec_resp = _fetch_recommendations_for_bh_container(
-                http_session, ros_api_url, bh_auth, bh_cluster_uuid, container
+                http_session,
+                ros_api_url,
+                bh_auth,
+                bh_cluster_uuid,
+                container,
+                keycloak_config,
+                cluster_config,
             )
             assert rec_resp.status_code == 200, rec_resp.text
             assert _recommendations_include_business_hours(rec_resp.json()), (
@@ -755,7 +783,12 @@ class TestBusinessHoursE2E:
                 f"{container['workload']}/{container['container']}"
             )
         finally:
-            delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+            delete_business_hours_schedule(
+                http_session,
+                ros_api_url,
+                _fresh_bh_auth(keycloak_config, cluster_config, http_session),
+                bh_cluster_uuid,
+            )
 
     def test_schedule_change_trailing_reship(
         self,
@@ -1111,6 +1144,8 @@ class TestBusinessHoursE2E:
         org_id: str,
         ros_database_config: dict,
         http_session: requests.Session,
+        keycloak_config,
+        cluster_config,
     ):
         """BH-E2E-011: schedule PUT → reship → digest update → trailing reship on change."""
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
@@ -1147,8 +1182,9 @@ class TestBusinessHoursE2E:
             payload_narrow = _valid_schedule_payload()
             payload_narrow["schedule"]["start_time"] = "12:00"
             payload_narrow["schedule"]["end_time"] = "13:00"
+            auth = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
             resp = put_business_hours_schedule(
-                http_session, ros_api_url, bh_auth, bh_cluster_uuid, payload=payload_narrow
+                http_session, ros_api_url, auth, bh_cluster_uuid, payload=payload_narrow
             )
             assert resp.status_code in (200, 202), resp.text
 
@@ -1178,18 +1214,24 @@ class TestBusinessHoursE2E:
                 f"Narrowed schedule should reduce BH sample_count ({narrow_avg:.1f} vs {wide_avg:.1f})"
             )
 
+            auth = _fresh_bh_auth(keycloak_config, cluster_config, http_session)
             get_resp = http_session.get(
                 f"{_bh_settings_base(ros_api_url)}/clusters/{bh_cluster_uuid}",
-                headers=bh_auth,
+                headers=auth,
                 timeout=30,
             )
             assert get_resp.status_code == 200, get_resp.text
             assert get_resp.json().get("schedule", {}).get("start_time") == "12:00"
             assert wait_for_reship_status(
-                http_session, ros_api_url, bh_auth, bh_cluster_uuid, "complete", timeout=120
+                http_session, ros_api_url, auth, bh_cluster_uuid, "complete", timeout=120
             )
         finally:
-            delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
+            delete_business_hours_schedule(
+                http_session,
+                ros_api_url,
+                _fresh_bh_auth(keycloak_config, cluster_config, http_session),
+                bh_cluster_uuid,
+            )
 
 
 @pytest.mark.ros
@@ -1487,6 +1529,8 @@ class TestBusinessHoursExtendedScenarios:
         org_id: str,
         ros_database_config: dict,
         http_session: requests.Session,
+        keycloak_config,
+        cluster_config,
     ):
         """BH-E2E-016: New BH recommendations appear within upload_cycle after reship starts."""
         # Operator default upload_cycle is 360 minutes; cap E2E wait at 15 minutes.
@@ -1506,7 +1550,13 @@ class TestBusinessHoursExtendedScenarios:
                 if not container:
                     return False
                 rec_resp = _fetch_recommendations_for_bh_container(
-                    http_session, ros_api_url, bh_auth, bh_cluster_uuid, container
+                    http_session,
+                    ros_api_url,
+                    bh_auth,
+                    bh_cluster_uuid,
+                    container,
+                    keycloak_config,
+                    cluster_config,
                 )
                 if rec_resp.status_code != 200:
                     return False
