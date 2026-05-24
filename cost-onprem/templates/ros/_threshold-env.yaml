@@ -1,0 +1,10 @@
+{{/*
+  Recommendation threshold environment variables (admin overrides).
+  Values come from .Values.ros.thresholdEnv — unset keys are omitted so compiled defaults apply.
+*/}}
+{{- define "cost-onprem.ros.thresholdEnv" -}}
+{{- range $name, $value := .Values.ros.thresholdEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+{{- end }}

@@ -93,6 +93,19 @@ ros:
     # Kruize integration
     kruizeWaitTime: 120
 
+  # Optional admin overrides for recommendation thresholds (ROS_* env vars).
+  # Only keys listed here are injected into ros-api and ros-processor pods.
+  # When an env var is set it locks that field for all tenants via the Settings API.
+  # Leave empty to use compiled defaults and allow per-org Settings API overrides.
+  # Example keys and compiled defaults (see docs/architecture/configurability.md):
+  #   ROS_CONTAINER_CPU_COST_PERCENTILE: "0.60"
+  #   ROS_CONTAINER_CPU_PERF_PERCENTILE: "0.98"
+  #   ROS_NODE_COST_TARGET_UTILIZATION: "0.80"
+  #   ROS_GPU_TIMESLICING_MIN_REPLICAS: "2"
+  #   ROS_PVC_OVERSIZED_THRESHOLD: "0.20"
+  #   ROS_SNAPSHOT_INVENTORY_FRESH_HOURS: "6"
+  thresholdEnv: {}
+
   # Recommendation Poller Component - Polls Kruize for recommendations
   recommendationPoller:
     metricsPort: 9000
