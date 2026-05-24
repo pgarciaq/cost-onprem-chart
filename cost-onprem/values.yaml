@@ -69,6 +69,8 @@ ros:
     logLevel: INFO
     # Business-hours settings API and dual-stream recommendations (ros-api kill-switch).
     businessHoursEnabled: true
+    # When false, skip Masu effective-rates fetches for GPU savings on API responses.
+    savingsEstimatesEnabled: true
     # When true, exhausted masu reship retries transition to forward-only BH recommendations.
     reshipForwardOnlyFallback: false
 
@@ -79,6 +81,8 @@ ros:
     serviceName: ros-processor
     # Must match api.businessHoursEnabled so ingestion writes business_hours digests.
     businessHoursEnabled: true
+    # When false, skip Masu effective-rates fetches; recommendations keep zero savings.
+    savingsEstimatesEnabled: true
 
     # Kafka consumer configuration
     kafkaConsumerGroupId: ros-processor

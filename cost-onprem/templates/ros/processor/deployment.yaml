@@ -103,6 +103,8 @@ spec:
               value: {{ .Values.ros.processor.metricsPort | quote }}
             - name: KOKU_MASU_URL
               value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
+            - name: ROS_SAVINGS_ESTIMATES_ENABLED
+              value: {{ .Values.ros.processor.savingsEstimatesEnabled | default true | quote }}
             - name: ROS_BUSINESS_HOURS_ENABLED
               value: {{ .Values.ros.processor.businessHoursEnabled | default .Values.ros.api.businessHoursEnabled | quote }}
             - name: ROS_BUSINESS_HOURS_RESHIP_FORWARD_ONLY_FALLBACK

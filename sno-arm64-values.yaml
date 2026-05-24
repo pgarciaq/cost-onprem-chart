@@ -15,7 +15,7 @@ global:
 ros:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
-    tag: "bh-20260522-tz2"
+    tag: "bh-20260523-stale-fix"
     pullPolicy: IfNotPresent
   api:
     businessHoursEnabled: true
