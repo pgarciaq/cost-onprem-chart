@@ -477,6 +477,44 @@ def _fetch_cluster_recommendations_with_business_hours(
     return last_resp, False
 
 
+def wait_for_business_hours_in_recommendations(
+    http_session: requests.Session,
+    ros_api_url: str,
+    auth_header: dict,
+    cluster_uuid: str,
+    keycloak_config=None,
+    cluster_config=None,
+    timeout: int = 420,
+) -> tuple[requests.Response, bool]:
+    """Poll cluster recommendations until any item includes business_hours.
+
+    Dual digests can appear in the database before ros-api enrichment exposes
+    business_hours on list responses (reship + digest indexing lag).
+    """
+    last_resp: Optional[requests.Response] = None
+
+    def check() -> bool:
+        nonlocal last_resp
+        last_resp, found_bh = _fetch_cluster_recommendations_with_business_hours(
+            http_session,
+            ros_api_url,
+            auth_header,
+            cluster_uuid,
+            keycloak_config,
+            cluster_config,
+        )
+        return last_resp.status_code == 200 and found_bh
+
+    ok = wait_for_condition(
+        check,
+        timeout=timeout,
+        interval=15,
+        description="business_hours in recommendations",
+    )
+    assert last_resp is not None
+    return last_resp, ok
+
+
 def _scale_masu_to_zero(cluster_config, timeout: int = 180) -> None:
     """Scale MASU to zero and wait until cost-processor pods are fully gone."""
     masu_deploy = f"{cluster_config.helm_release_name}-koku-masu"
@@ -894,13 +932,18 @@ class TestBusinessHoursE2E:
                 ros_database_config, org_id, bh_cluster_uuid, timeout=420
             ), "Timed out waiting for dual schedule_type digests"
 
-            rec_resp, found_bh = _fetch_cluster_recommendations_with_business_hours(
+            assert wait_for_reship_pending_cleared(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=600
+            ), "Reship did not complete after business-hours schedule PUT"
+
+            rec_resp, found_bh = wait_for_business_hours_in_recommendations(
                 http_session,
                 ros_api_url,
                 bh_auth,
                 bh_cluster_uuid,
                 keycloak_config,
                 cluster_config,
+                timeout=420,
             )
             assert rec_resp.status_code == 200, rec_resp.text
             assert found_bh, (
