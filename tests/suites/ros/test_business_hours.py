@@ -620,6 +620,43 @@ def _count_digest_rows(
     return int(rows[0][0]) if rows and rows[0][0] else 0
 
 
+def _find_namespaces_with_bh_sample_counts(
+    ros_database_config: dict,
+    org_id: str,
+    cluster_uuid: str,
+    min_avg_samples: float = 8.0,
+    min_count: int = 2,
+) -> list[tuple[str, float]]:
+    """Return namespaces ordered by descending avg business_hours sample_count."""
+    rows = execute_db_query(
+        ros_database_config["namespace"],
+        ros_database_config["pod_name"],
+        ros_database_config["database"],
+        ros_database_config["user"],
+        f"""
+        SELECT namespace, COALESCE(AVG(sample_count), 0)::text AS avg_samples
+        FROM daily_container_digests
+        WHERE org_id = '{org_id}'
+          AND cluster_uuid = '{cluster_uuid}'::uuid
+          AND schedule_type = 'business_hours'
+          AND namespace <> ''
+          AND sample_count > 0
+        GROUP BY namespace
+        HAVING AVG(sample_count) >= {min_avg_samples}
+        ORDER BY avg_samples DESC
+        LIMIT 10
+        """,
+        password=ros_database_config["password"],
+    )
+    pairs = []
+    for row in rows or []:
+        if row and row[0]:
+            pairs.append((row[0], float(row[1] or 0)))
+    if len(pairs) >= min_count:
+        return pairs[:min_count]
+    return pairs
+
+
 def _find_namespaces_with_digests(
     ros_database_config: dict,
     org_id: str,
@@ -1040,16 +1077,7 @@ class TestBusinessHoursE2E:
         http_session: requests.Session,
     ):
         """BH-E2E-008: namespace override uses its own window; others inherit cluster schedule."""
-        namespaces = _find_namespaces_with_digests(
-            ros_database_config, org_id, bh_cluster_uuid, min_count=2
-        )
-        if len(namespaces) < 2:
-            pytest.skip("Need at least two namespaces with digest data for mixed-schedule test")
-
-        override_ns, inherit_ns = namespaces[0], namespaces[1]
-        delete_business_hours_schedule(
-            http_session, ros_api_url, bh_auth, bh_cluster_uuid, override_ns
-        )
+        override_ns: Optional[str] = None
         delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
         try:
             cluster_payload = _valid_schedule_payload()
@@ -1062,6 +1090,20 @@ class TestBusinessHoursE2E:
             assert wait_for_reship_pending_cleared(
                 ros_database_config, org_id, bh_cluster_uuid, timeout=600
             ), "Cluster schedule reship did not complete"
+
+            ns_pairs = _find_namespaces_with_bh_sample_counts(
+                ros_database_config, org_id, bh_cluster_uuid, min_avg_samples=8.0, min_count=2
+            )
+            if len(ns_pairs) < 2:
+                pytest.skip(
+                    "Need two namespaces with avg business_hours sample_count >= 8 "
+                    "after cluster schedule reship; ingest more ROS history or widen test window"
+                )
+
+            override_ns, _ = ns_pairs[0]
+            inherit_ns = ns_pairs[1][0]
+            if override_ns == inherit_ns:
+                pytest.skip("Need distinct namespaces for mixed-schedule test")
 
             assert wait_for_dual_digests(
                 ros_database_config, org_id, bh_cluster_uuid, override_ns, timeout=420
@@ -1076,7 +1118,9 @@ class TestBusinessHoursE2E:
             override_wide_avg = _avg_bh_sample_count(
                 ros_database_config, org_id, bh_cluster_uuid, override_ns
             )
-            assert inherit_avg > 0 and override_wide_avg > 0, "Expected non-zero BH sample counts"
+            assert inherit_avg > 0 and override_wide_avg >= 8, (
+                "Expected dense BH sample counts before namespace override"
+            )
 
             ns_payload = _valid_schedule_payload()
             ns_payload["schedule"]["start_time"] = "12:00"
@@ -1139,9 +1183,10 @@ class TestBusinessHoursE2E:
                 f"({override_avg:.1f} vs wide cluster window {override_wide_avg:.1f})"
             )
         finally:
-            delete_business_hours_schedule(
-                http_session, ros_api_url, bh_auth, bh_cluster_uuid, override_ns
-            )
+            if override_ns:
+                delete_business_hours_schedule(
+                    http_session, ros_api_url, bh_auth, bh_cluster_uuid, override_ns
+                )
             delete_business_hours_schedule(http_session, ros_api_url, bh_auth, bh_cluster_uuid)
 
     def test_namespace_enabled_false(
