@@ -9,7 +9,7 @@ import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
-from utils import run_oc_command, wait_for_condition
+from utils import parse_savings_value, run_oc_command, wait_for_condition
 
 _RECOMMENDATION_TYPES = ("container", "namespace", "node", "gpu", "pvc")
 
@@ -163,7 +163,9 @@ def _recommendation_fingerprint(item: dict[str, Any]) -> dict[str, Any]:
         "last_reported": item.get("last_reported"),
         "cpu_request_millicores": engine.get("cpu_request_millicores"),
         "memory_request_kib": engine.get("memory_request_kib"),
-        "estimated_monthly_savings_usd": item.get("estimated_monthly_savings_usd"),
+        "estimated_monthly_savings": parse_savings_value(
+            item.get("estimated_monthly_savings")
+        ),
     }
 
 

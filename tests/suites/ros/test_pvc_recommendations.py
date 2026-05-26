@@ -7,6 +7,8 @@ from typing import Any, Optional
 import pytest
 import requests
 
+from utils import assert_structured_savings, parse_savings_value
+
 from suites.ros.test_recommendations import get_fresh_token
 
 
@@ -151,14 +153,18 @@ class TestPVCRecommendationsE2E:
 
         saw_savings = False
         for item in items:
-            savings = item.get("estimated_monthly_savings_usd")
-            if savings is None:
+            savings_obj = item.get("estimated_monthly_savings")
+            if savings_obj is None:
                 continue
             saw_savings = True
-            assert savings >= 0, f"negative savings on PVC {item.get('persistentvolumeclaim')}"
+            assert_structured_savings(savings_obj)
+            savings = parse_savings_value(savings_obj)
+            assert savings is not None and savings >= 0, (
+                f"negative savings on PVC {item.get('persistentvolumeclaim')}"
+            )
         if not saw_savings:
             # Savings may be absent/null for non-actionable PVC rows; field presence is optional.
-            assert "estimated_monthly_savings_usd" in items[0]
+            assert "estimated_monthly_savings" in items[0]
 
     def test_pvc_pagination(
         self,

@@ -8,6 +8,7 @@ import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
+from utils import assert_structured_savings, parse_savings_value
 
 _FLOAT_TOLERANCE = 0.02
 
@@ -95,7 +96,8 @@ class TestSavingsSummaryE2E:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert "currency" in body
-        assert "total_estimated_monthly_savings_usd" in body
+        assert "estimated_monthly_savings" in body
+        assert_structured_savings(body["estimated_monthly_savings"])
         assert "by_cluster" in body
         assert "by_plugin" in body
         assert isinstance(body["by_cluster"], list)
@@ -140,7 +142,8 @@ class TestSavingsSummaryE2E:
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        total = float(body["total_estimated_monthly_savings_usd"])
+        total = parse_savings_value(body["estimated_monthly_savings"])
+        assert total is not None
         plugin_total = _plugin_sum(body["by_plugin"])
         assert total == pytest.approx(plugin_total, abs=_FLOAT_TOLERANCE), (
             f"total {total} != plugin sum {plugin_total} (by_plugin={body['by_plugin']})"
@@ -185,7 +188,8 @@ class TestSavingsSummaryE2E:
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert "total_estimated_monthly_savings_usd" in body
+        assert "estimated_monthly_savings" in body
+        assert_structured_savings(body["estimated_monthly_savings"])
         assert "by_plugin" in body
 
     @pytest.mark.timeout(60)
