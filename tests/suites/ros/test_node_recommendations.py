@@ -7,6 +7,8 @@ from typing import Any, Optional
 import pytest
 import requests
 
+from utils import assert_structured_savings, parse_savings_value
+
 from suites.ros.test_recommendations import get_fresh_token
 
 
@@ -151,13 +153,14 @@ class TestNodeRecommendationsE2E:
             engines = _node_medium_engines(item)
             for engine_name in ("cost", "performance"):
                 engine = engines.get(engine_name)
-                if engine and "estimated_monthly_savings_usd" in engine:
+                if engine and "estimated_monthly_savings" in engine:
                     found_savings_key = True
-                    savings = engine["estimated_monthly_savings_usd"]
+                    savings = parse_savings_value(engine["estimated_monthly_savings"])
                     if savings is not None:
                         assert savings >= 0
+                        assert_structured_savings(engine["estimated_monthly_savings"])
         assert found_savings_key, (
-            "expected estimated_monthly_savings_usd on at least one engine block"
+            "expected estimated_monthly_savings on at least one engine block"
         )
 
     def test_nodes_dual_engine_divergence(

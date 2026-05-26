@@ -846,6 +846,37 @@ def check_pod_ready(namespace: str, label: str) -> bool:
         return False
 
 
+# =============================================================================
+# ROS API savings helpers (structured {"value": "...", "units": "USD"})
+# =============================================================================
+
+
+def parse_savings_value(savings: Any) -> Optional[float]:
+    """Return USD float from structured savings or legacy bare numeric."""
+    if savings is None:
+        return None
+    if isinstance(savings, (int, float)):
+        return float(savings)
+    if isinstance(savings, dict):
+        raw = savings.get("value")
+        if raw is None:
+            return None
+        return float(raw)
+    raise TypeError(f"unexpected savings payload type: {type(savings)!r}")
+
+
+def assert_structured_savings(savings: Any, *, required: bool = True) -> None:
+    """Assert API savings object matches {value, units} shape."""
+    if savings is None:
+        assert not required, "expected structured estimated_monthly_savings"
+        return
+    assert isinstance(savings, dict), f"expected savings object, got {type(savings)!r}"
+    assert "value" in savings, "savings object missing value"
+    assert "units" in savings, "savings object missing units"
+    assert savings["units"] == "USD"
+    float(savings["value"])
+
+
 def wait_for_condition(
     check_func,
     timeout: int = 300,
