@@ -1,0 +1,17 @@
+{{/*
+  ROS feature flags: tag sync/filtering and plugin registry (ros-api and ros-processor).
+*/}}
+{{- define "cost-onprem.ros.featureEnv" -}}
+            - name: ROS_TAGS_ENABLED
+              value: {{ .Values.ros.api.tagsEnabled | default false | quote }}
+            - name: ROS_TAGS_SOURCE
+              value: {{ .Values.ros.api.tagsSource | default "db" | quote }}
+            - name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS
+              value: {{ .Values.ros.api.tagsAllowedServiceAccounts | default "" | quote }}
+            - name: ROS_TAGS_DEV_TOKEN
+              value: {{ .Values.ros.api.tagsDevToken | default "" | quote }}
+            - name: ROS_ENABLED_PLUGINS
+              value: {{ .Values.ros.api.enabledPlugins | default "" | quote }}
+            - name: ROS_DISABLED_PLUGINS
+              value: {{ .Values.ros.api.disabledPlugins | default "" | quote }}
+{{- end }}

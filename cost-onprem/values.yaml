@@ -74,6 +74,18 @@ ros:
     # When true, exhausted masu reship retries transition to forward-only BH recommendations.
     reshipForwardOnlyFallback: false
 
+    # Tag filtering (on-prem uses shared PostgreSQL; push sync stays disabled).
+    tagsEnabled: false
+    tagsSource: db
+    # Comma-separated K8s SA names allowed to call POST /internal/tags/sync (api mode only).
+    tagsAllowedServiceAccounts: ""
+    # Dev-only static bearer when projected SA token is unavailable (must match Koku if set).
+    tagsDevToken: ""
+
+    # Plugin allowlist/denylist (empty enabled = ros-ocp-backend compiled defaults).
+    enabledPlugins: ""
+    disabledPlugins: ""
+
   # Processor Component - Processes uploaded data
   processor:
     replicas: 1
