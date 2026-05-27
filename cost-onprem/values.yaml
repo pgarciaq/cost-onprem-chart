@@ -86,6 +86,20 @@ ros:
     enabledPlugins: ""
     disabledPlugins: ""
 
+    # Idle/zombie detection
+    idleDetection:
+      enabled: true
+      zombieCpuMillicores: 1
+      zombiePeakMillicores: 10
+      cpuUtilizationPct: 2
+      memUtilizationPct: 5
+      burstRatio: 10
+      minObservationDays: 14
+      gpuSmActiveBP: 500
+      gpuDramActiveBP: 500
+      excludeNamespaces: "kube-system,openshift-*"
+      excludeWorkloadTypes: "DaemonSet"
+
   # Processor Component - Processes uploaded data
   processor:
     replicas: 1
