@@ -17,6 +17,10 @@ from conftest import get_fresh_auth_header
 from utils import check_pod_ready, run_oc_command
 
 
+def get_fresh_token(keycloak_config, cluster_config, http_session):
+    """Backward-compatible alias for tests that import from this module."""
+    return get_fresh_auth_header(keycloak_config, http_session)
+
 
 def get_recommendations_endpoint(ros_api_url: str) -> str:
     """Build the recommendations endpoint URL."""

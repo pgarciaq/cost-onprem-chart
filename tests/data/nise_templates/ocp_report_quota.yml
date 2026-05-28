@@ -1,0 +1,49 @@
+---
+# OCP static report for quota recommendation E2E.
+# High pod requests inflate ResourceQuota hard sums; low usage and explicit
+# resource_quota used values exercise the quota plugin tighten/raise paths.
+#
+# Use with generate_nise_data(..., iqe_template="ocp_report_quota.yml", include_ros=True)
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: quota-worker-1
+          cpu_cores: 32
+          memory_gig: 64
+          resource_id: quota-node-1
+          namespaces:
+            quota-e2e-ns:
+              resource_quota:
+                cpu_request_used: 2.0
+                cpu_limit_used: 4.0
+                memory_request_used_gig: 4
+                memory_limit_used_gig: 8
+              pods:
+                - pod:
+                  pod_name: quota-heavy-1
+                  cpu_request: 20
+                  mem_request_gig: 8
+                  cpu_limit: 24
+                  mem_limit_gig: 12
+                  cpu_usage:
+                    full_period: 0.5
+                  mem_usage_gig:
+                    full_period: 1.0
+                  labels: label_app:quota-e2e|label_environment:test
+                  workload: deployment
+                  replica_count: 2
+                - pod:
+                  pod_name: quota-heavy-2
+                  cpu_request: 15
+                  mem_request_gig: 6
+                  cpu_limit: 18
+                  mem_limit_gig: 10
+                  cpu_usage:
+                    full_period: 0.4
+                  mem_usage_gig:
+                    full_period: 0.8
+                  labels: label_app:quota-e2e|label_environment:test
+                  workload: deployment
