@@ -4,6 +4,7 @@
 {{- define "cost-onprem.ros.featureEnv" -}}
 {{- $idle := .Values.ros.api.idleDetection | default dict -}}
 {{- $quota := .Values.ros.api.quotaRecommendations | default dict -}}
+{{- $clusterQuota := .Values.ros.api.clusterQuotaRecommendations | default dict -}}
             - name: ROS_TAGS_ENABLED
               value: {{ .Values.ros.api.tagsEnabled | default false | quote }}
             - name: ROS_TAGS_SOURCE
@@ -22,6 +23,12 @@
               value: {{ $quota.highRiskThresholdPercent | default 90 | quote }}
             - name: ROS_QUOTA_MEDIUM_RISK_THRESHOLD_PERCENT
               value: {{ $quota.mediumRiskThresholdPercent | default 70 | quote }}
+            - name: ROS_CLUSTER_QUOTA_HEADROOM_PERCENT
+              value: {{ $clusterQuota.headroomPercent | default 10 | quote }}
+            - name: ROS_CLUSTER_QUOTA_HIGH_RISK_THRESHOLD_PERCENT
+              value: {{ $clusterQuota.highRiskThresholdPercent | default 90 | quote }}
+            - name: ROS_CLUSTER_QUOTA_MEDIUM_RISK_THRESHOLD_PERCENT
+              value: {{ $clusterQuota.mediumRiskThresholdPercent | default 70 | quote }}
             - name: ROS_IDLE_DETECTION_ENABLED
               value: {{ $idle.enabled | default true | quote }}
             - name: ROS_IDLE_ZOMBIE_CPU_MILLICORES
