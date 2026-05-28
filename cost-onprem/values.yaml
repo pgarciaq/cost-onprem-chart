@@ -83,8 +83,15 @@ ros:
     tagsDevToken: ""
 
     # Plugin allowlist/denylist (empty enabled = ros-ocp-backend compiled defaults).
+    # When setting enabledPlugins, include "quota" for ResourceQuota recommendations.
     enabledPlugins: ""
     disabledPlugins: ""
+
+    # Quota recommendation thresholds (namespace ResourceQuota right-sizing).
+    quotaRecommendations:
+      headroomPercent: 10
+      highRiskThresholdPercent: 90
+      mediumRiskThresholdPercent: 70
 
     # Idle/zombie detection
     idleDetection:
