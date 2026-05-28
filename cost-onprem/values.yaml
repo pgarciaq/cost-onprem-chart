@@ -93,6 +93,12 @@ ros:
       highRiskThresholdPercent: 90
       mediumRiskThresholdPercent: 70
 
+    # ClusterResourceQuota recommendation thresholds (OpenShift team/tenant CRQs).
+    clusterQuotaRecommendations:
+      headroomPercent: 10
+      highRiskThresholdPercent: 90
+      mediumRiskThresholdPercent: 70
+
     # Idle/zombie detection
     idleDetection:
       enabled: true
