@@ -83,7 +83,8 @@ ros:
     tagsDevToken: ""
 
     # Plugin allowlist/denylist (empty enabled = ros-ocp-backend compiled defaults).
-    # When setting enabledPlugins, include "quota" for ResourceQuota recommendations.
+    # When setting enabledPlugins, include "quota" and "cluster-quota" for OpenShift
+    # ResourceQuota and ClusterResourceQuota recommendations (cluster-quota works best with quota).
     enabledPlugins: ""
     disabledPlugins: ""
 

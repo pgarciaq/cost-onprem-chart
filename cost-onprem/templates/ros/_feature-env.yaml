@@ -1,54 +1,55 @@
 {{/*
   ROS feature flags: tag sync/filtering and plugin registry (ros-api and ros-processor).
+  Included under containers[].env with indent 12.
 */}}
-{{- define "cost-onprem.ros.featureEnv" -}}
-{{- $idle := .Values.ros.api.idleDetection | default dict -}}
-{{- $quota := .Values.ros.api.quotaRecommendations | default dict -}}
-{{- $clusterQuota := .Values.ros.api.clusterQuotaRecommendations | default dict -}}
-            - name: ROS_TAGS_ENABLED
-              value: {{ .Values.ros.api.tagsEnabled | default false | quote }}
-            - name: ROS_TAGS_SOURCE
-              value: {{ .Values.ros.api.tagsSource | default "db" | quote }}
-            - name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS
-              value: {{ .Values.ros.api.tagsAllowedServiceAccounts | default "" | quote }}
-            - name: ROS_TAGS_DEV_TOKEN
-              value: {{ .Values.ros.api.tagsDevToken | default "" | quote }}
-            - name: ROS_ENABLED_PLUGINS
-              value: {{ .Values.ros.api.enabledPlugins | default "" | quote }}
-            - name: ROS_DISABLED_PLUGINS
-              value: {{ .Values.ros.api.disabledPlugins | default "" | quote }}
-            - name: ROS_QUOTA_HEADROOM_PERCENT
-              value: {{ $quota.headroomPercent | default 10 | quote }}
-            - name: ROS_QUOTA_HIGH_RISK_THRESHOLD_PERCENT
-              value: {{ $quota.highRiskThresholdPercent | default 90 | quote }}
-            - name: ROS_QUOTA_MEDIUM_RISK_THRESHOLD_PERCENT
-              value: {{ $quota.mediumRiskThresholdPercent | default 70 | quote }}
-            - name: ROS_CLUSTER_QUOTA_HEADROOM_PERCENT
-              value: {{ $clusterQuota.headroomPercent | default 10 | quote }}
-            - name: ROS_CLUSTER_QUOTA_HIGH_RISK_THRESHOLD_PERCENT
-              value: {{ $clusterQuota.highRiskThresholdPercent | default 90 | quote }}
-            - name: ROS_CLUSTER_QUOTA_MEDIUM_RISK_THRESHOLD_PERCENT
-              value: {{ $clusterQuota.mediumRiskThresholdPercent | default 70 | quote }}
-            - name: ROS_IDLE_DETECTION_ENABLED
-              value: {{ $idle.enabled | default true | quote }}
-            - name: ROS_IDLE_ZOMBIE_CPU_MILLICORES
-              value: {{ $idle.zombieCpuMillicores | default 1 | quote }}
-            - name: ROS_IDLE_ZOMBIE_PEAK_MILLICORES
-              value: {{ $idle.zombiePeakMillicores | default 10 | quote }}
-            - name: ROS_IDLE_CPU_UTILIZATION_PCT
-              value: {{ $idle.cpuUtilizationPct | default 2 | quote }}
-            - name: ROS_IDLE_MEMORY_UTILIZATION_PCT
-              value: {{ $idle.memUtilizationPct | default 5 | quote }}
-            - name: ROS_IDLE_BURST_RATIO
-              value: {{ $idle.burstRatio | default 10 | quote }}
-            - name: ROS_IDLE_MIN_OBSERVATION_DAYS
-              value: {{ $idle.minObservationDays | default 14 | quote }}
-            - name: ROS_IDLE_GPU_SM_ACTIVE_BP
-              value: {{ $idle.gpuSmActiveBP | default 500 | quote }}
-            - name: ROS_IDLE_GPU_DRAM_ACTIVE_BP
-              value: {{ $idle.gpuDramActiveBP | default 500 | quote }}
-            - name: ROS_IDLE_EXCLUDE_NAMESPACES
-              value: {{ $idle.excludeNamespaces | default "kube-system,openshift-*" | quote }}
-            - name: ROS_IDLE_EXCLUDE_WORKLOAD_TYPES
-              value: {{ $idle.excludeWorkloadTypes | default "DaemonSet" | quote }}
+{{- define "cost-onprem.ros.featureEnv" }}
+{{- $idle := .Values.ros.api.idleDetection | default dict }}
+{{- $quota := .Values.ros.api.quotaRecommendations | default dict }}
+{{- $clusterQuota := .Values.ros.api.clusterQuotaRecommendations | default dict }}
+- name: ROS_TAGS_ENABLED
+  value: {{ .Values.ros.api.tagsEnabled | default false | quote }}
+- name: ROS_TAGS_SOURCE
+  value: {{ .Values.ros.api.tagsSource | default "db" | quote }}
+- name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS
+  value: {{ .Values.ros.api.tagsAllowedServiceAccounts | default "" | quote }}
+- name: ROS_TAGS_DEV_TOKEN
+  value: {{ .Values.ros.api.tagsDevToken | default "" | quote }}
+- name: ROS_ENABLED_PLUGINS
+  value: {{ .Values.ros.api.enabledPlugins | default "" | quote }}
+- name: ROS_DISABLED_PLUGINS
+  value: {{ .Values.ros.api.disabledPlugins | default "" | quote }}
+- name: ROS_QUOTA_HEADROOM_PERCENT
+  value: {{ $quota.headroomPercent | default 10 | quote }}
+- name: ROS_QUOTA_HIGH_RISK_THRESHOLD_PERCENT
+  value: {{ $quota.highRiskThresholdPercent | default 90 | quote }}
+- name: ROS_QUOTA_MEDIUM_RISK_THRESHOLD_PERCENT
+  value: {{ $quota.mediumRiskThresholdPercent | default 70 | quote }}
+- name: ROS_CLUSTER_QUOTA_HEADROOM_PERCENT
+  value: {{ $clusterQuota.headroomPercent | default 10 | quote }}
+- name: ROS_CLUSTER_QUOTA_HIGH_RISK_THRESHOLD_PERCENT
+  value: {{ $clusterQuota.highRiskThresholdPercent | default 90 | quote }}
+- name: ROS_CLUSTER_QUOTA_MEDIUM_RISK_THRESHOLD_PERCENT
+  value: {{ $clusterQuota.mediumRiskThresholdPercent | default 70 | quote }}
+- name: ROS_IDLE_DETECTION_ENABLED
+  value: {{ $idle.enabled | default true | quote }}
+- name: ROS_IDLE_ZOMBIE_CPU_MILLICORES
+  value: {{ $idle.zombieCpuMillicores | default 1 | quote }}
+- name: ROS_IDLE_ZOMBIE_PEAK_MILLICORES
+  value: {{ $idle.zombiePeakMillicores | default 10 | quote }}
+- name: ROS_IDLE_CPU_UTILIZATION_PCT
+  value: {{ $idle.cpuUtilizationPct | default 2 | quote }}
+- name: ROS_IDLE_MEMORY_UTILIZATION_PCT
+  value: {{ $idle.memUtilizationPct | default 5 | quote }}
+- name: ROS_IDLE_BURST_RATIO
+  value: {{ $idle.burstRatio | default 10 | quote }}
+- name: ROS_IDLE_MIN_OBSERVATION_DAYS
+  value: {{ $idle.minObservationDays | default 14 | quote }}
+- name: ROS_IDLE_GPU_SM_ACTIVE_BP
+  value: {{ $idle.gpuSmActiveBP | default 500 | quote }}
+- name: ROS_IDLE_GPU_DRAM_ACTIVE_BP
+  value: {{ $idle.gpuDramActiveBP | default 500 | quote }}
+- name: ROS_IDLE_EXCLUDE_NAMESPACES
+  value: {{ $idle.excludeNamespaces | default "kube-system,openshift-*" | quote }}
+- name: ROS_IDLE_EXCLUDE_WORKLOAD_TYPES
+  value: {{ $idle.excludeWorkloadTypes | default "DaemonSet" | quote }}
 {{- end }}

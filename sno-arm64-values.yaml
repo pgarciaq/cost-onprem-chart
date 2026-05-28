@@ -11,14 +11,25 @@ global:
   storageClass: "lvms-vg1"
   pullPolicy: IfNotPresent
 
-# Custom arm64 ROS image (business hours E2E build)
+# Custom arm64 ROS image (phase10: quota + cluster-quota)
 ros:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
-    tag: "bh-20260523-stale-fix"
+    tag: "phase10-20260528"
     pullPolicy: IfNotPresent
   api:
     businessHoursEnabled: true
+    # Empty allowlist = all native plugins (includes quota, cluster-quota).
+    enabledPlugins: ""
+    disabledPlugins: ""
+    quotaRecommendations:
+      headroomPercent: 10
+      highRiskThresholdPercent: 90
+      mediumRiskThresholdPercent: 70
+    clusterQuotaRecommendations:
+      headroomPercent: 10
+      highRiskThresholdPercent: 90
+      mediumRiskThresholdPercent: 70
 
 # Custom arm64 Koku image
 costManagement:
