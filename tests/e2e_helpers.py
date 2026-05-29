@@ -261,8 +261,8 @@ def generate_nise_data(
                      - "ocp_report_advanced.yml": Complex multi-node setup
     
     Returns:
-        Dict with keys: pod_usage_files, ros_usage_files, cluster_quota_files,
-        node_label_files, namespace_label_files
+        Dict with keys: pod_usage_files, ros_usage_files, namespace_usage_files,
+        cluster_quota_files, node_label_files, namespace_label_files
     """
     # Determine which YAML to use
     if iqe_template:
@@ -325,6 +325,7 @@ def generate_nise_data(
     files = {
         "pod_usage_files": [],
         "ros_usage_files": [],
+        "namespace_usage_files": [],
         "cluster_quota_files": [],
         "node_label_files": [],
         "namespace_label_files": [],
@@ -341,6 +342,8 @@ def generate_nise_data(
                     files["pod_usage_files"].append(full_path)
                 elif "ros_usage" in f:
                     files["ros_usage_files"].append(full_path)
+                elif "ros_namespace" in f or "namespace_usage" in f:
+                    files["namespace_usage_files"].append(full_path)
                 elif "cluster-quota" in f or "cluster_quota" in f:
                     files["cluster_quota_files"].append(full_path)
                 elif "node_label" in f:

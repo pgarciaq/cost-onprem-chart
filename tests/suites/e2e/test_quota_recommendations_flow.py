@@ -40,20 +40,15 @@ from suites.ros.test_quota_recommendations import (
 )
 from suites.ros.test_recommendations import get_fresh_token
 from utils import (
+    create_rh_identity_header,
     create_upload_package_from_files,
     execute_db_query,
     get_pod_by_label,
-    get_route_url,
     wait_for_condition,
 )
 
-
-def _ingress_upload_url(cluster_config) -> str:
-    route_name = f"{cluster_config.helm_release_name}-ingress"
-    base = get_route_url(cluster_config.namespace, route_name)
-    if not base:
-        pytest.skip("Ingress route not found")
-    return f"{base.rstrip('/')}/api/ingress/v1/upload"
+# Koku prepends "org" to JWT org_id; ROS stores bare org_id. SNO Keycloak uses "1234567".
+_UPLOAD_ORG_ID = "1234567"
 
 
 def _wait_for_quota_db_rows(
@@ -105,8 +100,8 @@ class TestQuotaRecommendationsExtendedFlow:
         self,
         cluster_config,
         keycloak_config,
-        org_id: str,
         quota_e2e_cluster_id: str,
+        ingress_url: str,
         ros_api_url: str,
         http_session: requests.Session,
     ):
@@ -116,7 +111,9 @@ class TestQuotaRecommendationsExtendedFlow:
         # Probe API before heavy upload when plugin is off.
         probe_auth = get_fresh_token(keycloak_config, cluster_config, http_session)
         if probe_auth:
-            probe = _fetch_quota(http_session, ros_api_url, probe_auth, {"limit": 1})
+            probe = _fetch_quota(
+                http_session, ros_api_url, probe_auth, {"limit": 1}
+            )
             if probe.status_code == 404:
                 pytest.skip("Quota recommendations plugin not enabled on cluster")
 
@@ -129,9 +126,7 @@ class TestQuotaRecommendationsExtendedFlow:
         if not ingress_pod or not db_pod:
             pytest.skip("Ingress or database pod not found")
 
-        from conftest import create_rh_identity_header
-
-        admin_identity = create_rh_identity_header(org_id)
+        admin_identity = create_rh_identity_header(_UPLOAD_ORG_ID)
         koku_url = get_koku_api_url(
             cluster_config.helm_release_name, cluster_config.namespace
         )
@@ -142,7 +137,7 @@ class TestQuotaRecommendationsExtendedFlow:
             api_url=koku_url,
             rh_identity_header=admin_identity,
             cluster_id=quota_e2e_cluster_id,
-            org_id=org_id,
+            org_id=_UPLOAD_ORG_ID,
             source_name=f"e2e-quota-{quota_e2e_cluster_id[-8:]}",
             container="ingress",
         )
@@ -169,9 +164,12 @@ class TestQuotaRecommendationsExtendedFlow:
         if not files.get("pod_usage_files"):
             pytest.fail("NISE did not generate pod_usage files for quota E2E")
 
+        ros_files = list(files.get("ros_usage_files") or [])
+        ros_files.extend(files.get("namespace_usage_files") or [])
+
         package_path = create_upload_package_from_files(
             pod_usage_files=files["pod_usage_files"],
-            ros_usage_files=files.get("ros_usage_files") or files["pod_usage_files"],
+            ros_usage_files=ros_files or files["pod_usage_files"],
             cluster_id=quota_e2e_cluster_id,
             start_date=start_date,
             end_date=end_date,
@@ -179,7 +177,7 @@ class TestQuotaRecommendationsExtendedFlow:
             namespace_label_files=files.get("namespace_label_files") or None,
         )
 
-        upload_url = _ingress_upload_url(cluster_config)
+        upload_url = f"{ingress_url.rstrip('/')}/v1/upload"
         upload_session = requests.Session()
         upload_session.verify = False
         token = obtain_jwt_token(keycloak_config)
@@ -200,7 +198,7 @@ class TestQuotaRecommendationsExtendedFlow:
             pytest.fail("Summary tables not populated after quota E2E upload")
 
         if not _wait_for_quota_db_rows(
-            cluster_config, db_pod, quota_e2e_cluster_id, org_id, timeout=600
+            cluster_config, db_pod, quota_e2e_cluster_id, _UPLOAD_ORG_ID, timeout=600
         ):
             pytest.skip(
                 "quota_recommendation_sets not populated within timeout; "
