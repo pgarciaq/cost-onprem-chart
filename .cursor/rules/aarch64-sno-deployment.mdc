@@ -1,0 +1,444 @@
+---
+description: Hard-won lessons from deploying cost-onprem on aarch64 SNO OpenShift clusters. MUST READ before any aarch64 or SNO deployment.
+globs: ["**/sno*", "**/arm64*", "**/aarch64*", "scripts/deploy-*.sh", "scripts/install-helm-chart.sh"]
+---
+
+# aarch64 SNO Deployment — Pitfalls & Fixes
+
+This document catalogs every issue encountered across multiple deployment
+attempts on aarch64 SNO OpenShift clusters. **Read it end-to-end before
+starting any deployment. Every item here caused real wasted time.**
+
+---
+
+## 1. kcli Downloads the Wrong RHCOS Image (amd64 Instead of aarch64)
+
+**Symptom:** `kcli create cluster` on an aarch64 hypervisor downloads the
+x86_64 RHCOS image. The resulting VMs fail to boot or crash immediately.
+
+**Root Cause:** kcli's default RHCOS image URL points to x86_64. It does
+not auto-detect the hypervisor architecture.
+
+**Fix:** Patch the kcli plan or explicitly pass the aarch64 RHCOS image URL:
+
+```bash
+# Find the correct aarch64 RHCOS URL for your OCP version
+RHCOS_URL="https://mirror.openshift.com/pub/openshift-v4/aarch64/dependencies/rhcos/<version>/rhcos-<version>-qemu.aarch64.qcow2.gz"
+
+# Pass it to kcli
+kcli create cluster openshift \
+  --paramfile sno.yml \
+  -P image_url=$RHCOS_URL
+```
+
+**Rule:** On aarch64 hypervisors, ALWAYS verify the RHCOS image architecture
+before starting cluster creation. Never assume kcli picks the right one.
+
+---
+
+## 2. The "orgorg" Schema Name Bug
+
+**Symptom:** Koku creates tenant schema `orgorg1234567` instead of
+`org1234567`. All API calls return 500 with
+`ProgrammingError: relation "cost_model_map" does not exist`.
+
+**Root Cause:** Koku prepends `org` to the JWT's `org_id` claim to create
+the schema name. If the Keycloak user attribute is set to `org1234567`,
+the schema becomes `org` + `org1234567` = `orgorg1234567`.
+
+**Fix:** Set the Keycloak user attribute to the **bare number** `1234567`,
+NOT `org1234567`:
+
+```bash
+# WRONG — creates schema "orgorg1234567"
+attributes: {"org_id": ["org1234567"]}
+
+# CORRECT — creates schema "org1234567"
+attributes: {"org_id": ["1234567"]}
+```
+
+**Rule:** When setting `org_id` in Keycloak user attributes, NEVER include
+the `org` prefix. The backend adds it.
+
+---
+
+## 3. MinIO Buckets: Three Required, Names Must Be Exact
+
+**Symptom:** Ingress returns HTTP 500 with
+`Failed to upload 'insights-upload-perma' to storage: The specified bucket does not exist`.
+Or listener fails with `UploadError: unable to copy data to bucket`.
+
+**Root Cause:** Three specific buckets are required, and the names are
+hardcoded in different components:
+
+| Bucket | Used By | Config Source |
+|--------|---------|---------------|
+| `insights-upload-perma` | Ingress (`INGRESS_STAGEBUCKET`) | `ingress.storage.bucket` in values.yaml |
+| `koku-bucket` | Listener/Masu (`REQUESTED_BUCKET`) | `objectStorage.bucketName` in values.yaml |
+| `ros-data` | ROS processor (`REQUESTED_ROS_BUCKET`) | `objectStorage.rosBucketName` in values.yaml |
+
+**Common mistake:** Creating buckets named `cost-data` or `ingress-upload`
+instead of the exact names above.
+
+**Fix:** Always create all three with exact names:
+
+```bash
+mc mb local/insights-upload-perma --ignore-existing
+mc mb local/koku-bucket --ignore-existing
+mc mb local/ros-data --ignore-existing
+```
+
+**Rule:** Before uploading ANY data, verify all three buckets exist with
+`mc ls local/`. The bucket names come from the Helm values — check the
+actual deployed env vars if unsure.
+
+---
+
+## 4. RHBK v26: Hostname Must Be Full HTTPS URL
+
+**Symptom:** Keycloak pod enters `CrashLoopBackOff` with
+`IllegalArgumentException: Provided hostname-admin is not a valid URL`.
+
+**Root Cause:** RHBK v26 (Keycloak 26+) changed the hostname spec to
+require full URLs instead of bare hostnames.
+
+**Fix:** Patch the Keycloak CR:
+
+```bash
+# WRONG (bare hostname — worked in v24, fails in v26)
+hostname:
+  hostname: keycloak-keycloak.apps.sno.karmalabs.corp
+
+# CORRECT (full HTTPS URL)
+hostname:
+  hostname: https://keycloak-keycloak.apps.sno.karmalabs.corp
+  admin: https://keycloak-keycloak.apps.sno.karmalabs.corp
+```
+
+**Rule:** Always use `https://` prefix in Keycloak hostname configuration
+when deploying RHBK v26+.
+
+---
+
+## 5. RHBK v26: Admin Username Is "temp-admin", Not "admin"
+
+**Symptom:** `curl` to Keycloak master realm token endpoint returns
+`{"error":"invalid_grant","error_description":"Invalid user credentials"}`
+when using username `admin`.
+
+**Root Cause:** RHBK operator sets the initial admin username to
+`temp-admin` (not `admin`) in the `keycloak-initial-admin` secret.
+
+**Fix:** Always read both username AND password from the secret:
+
+```bash
+ADMIN_USER=$(oc get secret keycloak-initial-admin -n keycloak \
+  -o jsonpath='{.data.username}' | base64 -d)
+ADMIN_PASS=$(oc get secret keycloak-initial-admin -n keycloak \
+  -o jsonpath='{.data.password}' | base64 -d)
+```
+
+**Rule:** Never hardcode `admin` as the Keycloak admin username. Always
+read it from the secret.
+
+---
+
+## 6. RHBK v26: User Attributes Silently Dropped (Unmanaged Attributes)
+
+**Symptom:** `PUT` to update user attributes returns HTTP 204 (success),
+but the attributes remain empty when you `GET` the user back.
+
+**Root Cause:** Keycloak 26+ enforces a User Profile. Custom attributes
+not registered in the profile are silently dropped. The default
+`unmanagedAttributePolicy` is unset (meaning: reject unmanaged attributes).
+
+**Fix:** Enable `ADMIN_EDIT` unmanaged attribute policy on the realm:
+
+```bash
+# Get current profile
+PROFILE=$(curl -sk "$KC_URL/admin/realms/$REALM/users/profile" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+
+# Set unmanagedAttributePolicy to ADMIN_EDIT
+echo "$PROFILE" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['unmanagedAttributePolicy'] = 'ADMIN_EDIT'
+print(json.dumps(d))" | curl -sk -X PUT \
+  "$KC_URL/admin/realms/$REALM/users/profile" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" -d @-
+```
+
+**Caution:** Do NOT add `org_id` and `account_number` as explicit profile
+attributes — that triggers the "Account is not fully set up" error (see #7).
+
+**Rule:** Before setting custom user attributes in RHBK 26+, enable
+`ADMIN_EDIT` for unmanaged attributes on the realm's user profile.
+
+---
+
+## 7. RHBK v26: "Account Is Not Fully Set Up" After Profile Changes
+
+**Symptom:** Token requests fail with
+`{"error":"invalid_grant","error_description":"Account is not fully set up"}`
+even though `requiredActions` is empty and the user is enabled.
+
+**Root Cause:** If custom attributes are added to the User Profile as
+explicit attributes (not unmanaged), Keycloak marks existing users as
+needing profile completion. The `VERIFY_PROFILE` required action is
+triggered at the realm level, not the user level, so clearing user-level
+`requiredActions` doesn't help.
+
+**Fix:** Delete and recreate the user:
+
+```bash
+# Delete the broken user
+curl -sk -X DELETE "$KC_URL/admin/realms/$REALM/users/$USER_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Recreate with attributes and credentials in one call
+curl -sk -X POST "$KC_URL/admin/realms/$REALM/users" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "test", "email": "test@test.com",
+    "firstName": "Test", "lastName": "User",
+    "enabled": true, "emailVerified": true,
+    "attributes": {"org_id": ["1234567"], "account_number": ["10001"]},
+    "credentials": [{"type": "password", "value": "test", "temporary": false}],
+    "requiredActions": []
+  }'
+```
+
+**Rule:** If user profile changes break token issuance, delete and recreate
+the user rather than trying to fix the broken state.
+
+---
+
+## 8. Nise: `--daily-reports` vs `--write-monthly` With `--insights-upload`
+
+**Symptom:** Nise generates no output files. The `--insights-upload` target
+directory is empty. Nise prints "INSIGHTS_ACCOUNT_ID and INSIGHTS_ORG_ID
+defined when attempting an upload to Ingress" warning.
+
+**Root Cause:** `--daily-reports` with `--insights-upload` requires
+`INSIGHTS_ACCOUNT_ID` and `INSIGHTS_ORG_ID` environment variables for the
+upload path. Without them, it skips writing to the target directory.
+
+**Fix:** Use `--write-monthly` instead of `--daily-reports`:
+
+```bash
+# WRONG — requires INSIGHTS_ACCOUNT_ID/INSIGHTS_ORG_ID
+nise report ocp --daily-reports --insights-upload /tmp/output ...
+
+# CORRECT — writes to output dir organized by month
+nise report ocp --write-monthly --insights-upload /tmp/output ...
+```
+
+**Rule:** For local data generation (not uploading to an actual Ingress
+service), always use `--write-monthly` with `--insights-upload`.
+
+---
+
+## 9. Hypervisor `/etc/hosts` Must Include ALL Route Hostnames
+
+**Symptom:** Scripts running on the hypervisor timeout with "Timeout waiting
+for Keycloak admin API" or `curl` returns connection refused for routes.
+
+**Root Cause:** The hypervisor can reach the SNO cluster's VIP but has no
+DNS for `*.apps.sno.karmalabs.corp` routes. Scripts use route hostnames
+that don't resolve.
+
+**Fix:** Add ALL route hostnames to the hypervisor's `/etc/hosts`:
+
+```
+192.168.122.115 api.sno.karmalabs.corp \
+  console-openshift-console.apps.sno.karmalabs.corp \
+  oauth-openshift.apps.sno.karmalabs.corp \
+  default-route-openshift-image-registry.apps.sno.karmalabs.corp \
+  keycloak-keycloak.apps.sno.karmalabs.corp \
+  cost-onprem-gateway-cost-onprem.apps.sno.karmalabs.corp
+```
+
+**Rule:** After creating any new route, immediately add it to the
+hypervisor's `/etc/hosts`.
+
+---
+
+## 10. Image Registry Auth: Use ServiceAccount Token, Not kubeconfig
+
+**Symptom:** `podman push` to the internal OCP registry fails with
+`authentication required` or `no token is currently in use`.
+
+**Root Cause:** The kubeconfig on the hypervisor uses certificate-based
+auth (from `kcli`), which doesn't produce bearer tokens that `podman`
+can use for registry auth.
+
+**Fix:** Create a ServiceAccount and use its token:
+
+```bash
+oc create serviceaccount image-pusher -n cost-onprem
+oc adm policy add-cluster-role-to-user registry-editor \
+  -z image-pusher -n cost-onprem
+TOKEN=$(oc create token image-pusher -n cost-onprem --duration=3600s)
+podman login $REGISTRY --username image-pusher --password "$TOKEN"
+```
+
+**Rule:** For pushing images from the hypervisor, always use a dedicated
+ServiceAccount with `registry-editor` role.
+
+---
+
+## 11. `install-helm-chart.sh`: Relative `VALUES_FILE` Path Breaks
+
+**Symptom:** Script fails with `Values file not found: sno-arm64-values.yaml`.
+
+**Root Cause:** The script `cd`s into subdirectories during execution,
+making the original relative path invalid.
+
+**Fix:** Always pass an absolute path:
+
+```bash
+VALUES_FILE=/root/cost-onprem-chart/sno-arm64-values.yaml \
+  ./scripts/install-helm-chart.sh --namespace cost-onprem
+```
+
+**Rule:** When calling `install-helm-chart.sh` with a `VALUES_FILE`, always
+use an absolute path.
+
+---
+
+## 12. `install-helm-chart.sh`: S3 Credentials Must Pre-Exist for MinIO
+
+**Symptom:** Script aborts with `No S3 storage credentials detected!`
+despite setting `S3_ACCESS_KEY` and `S3_SECRET_KEY` env vars.
+
+**Root Cause:** The script checks for the `cost-onprem-storage-credentials`
+Kubernetes secret, not env vars. It expects either a pre-existing secret
+or a different S3 provider setup path.
+
+**Fix:** Create the secret manually before running the script:
+
+```bash
+oc create secret generic cost-onprem-storage-credentials \
+  -n cost-onprem \
+  --from-literal=access-key=minioadmin \
+  --from-literal=secret-key=minioadmin
+```
+
+**Rule:** When using MinIO, create the `cost-onprem-storage-credentials`
+secret before running `install-helm-chart.sh`.
+
+---
+
+## 13. `cost_model_map` Does Not Exist After First API Request
+
+**Symptom:** First authenticated API request to `/sources/` or `/reports/`
+returns 500 with `ProgrammingError: relation "cost_model_map" does not exist`.
+
+**Root Cause:** The tenant schema was created but the API server's
+connection pool has stale schema state. The search_path isn't being set
+properly for the new tenant.
+
+**Fix:** Restart the Koku API deployment and flush cache:
+
+```bash
+oc rollout restart deploy/cost-onprem-koku-api -n cost-onprem
+oc exec deploy/cost-onprem-valkey -n cost-onprem -- redis-cli FLUSHALL
+```
+
+**Rule:** After a new customer/tenant is created for the first time,
+restart the Koku API deployment.
+
+---
+
+## 14. Envoy Gateway Timeouts on Grouped Queries
+
+**Symptom:** API calls with `group_by[cluster]=*` return empty responses.
+Bare endpoints (no `group_by`) work fine.
+
+**Root Cause:** The Envoy gateway has route-specific timeouts. Some routes
+(particularly catch-all or specific report paths) have short
+`per_try_timeout` (5s-15s). Grouped OCP queries can take 10-30 seconds.
+
+**Workaround:** Use bare endpoints without `group_by` for quick validation.
+For full functionality, increase the Envoy route timeouts in the Helm values:
+
+```yaml
+jwtAuth:
+  envoy:
+    routeTimeout: "300s"
+    routePerTryTimeout: "150s"
+```
+
+Then restart the gateway: `oc rollout restart deploy/cost-onprem-gateway`.
+
+---
+
+## 15. Missing Tools on Fresh Hypervisors
+
+**Symptom:** Various `command not found` errors during deployment.
+
+**Tools that need manual installation on fresh RHEL hypervisors:**
+
+```bash
+dnf install -y rsync python3-pip helm jq
+```
+
+Also needed but usually present: `curl`, `tar`, `podman`, `python3`.
+
+**Rule:** At the start of any deployment on a fresh hypervisor, install
+all required tools in one go.
+
+---
+
+## 16. aarch64 Images Must Be Built On-Site
+
+**Symptom:** Pods enter `CrashLoopBackOff` or `ImagePullBackOff` because
+the default images are amd64-only.
+
+**Components that ALWAYS need custom aarch64 builds:**
+- `koku` (backend API + workers)
+- `ros-ocp-backend` (ROS processor)
+- `insights-ingress-go` (ingress service)
+- `autotune` (Kruize)
+- `valkey` (cache)
+- `postgresql:16` (database)
+
+**Rule:** When deploying on aarch64, ALWAYS build ALL six images on the
+aarch64 hypervisor and push to the internal registry BEFORE attempting
+the Helm install. Never ask the user if they want aarch64 images — of
+course they do, that's why we're deploying on aarch64.
+
+---
+
+## 17. MinIO and Frontend Port Conflict (9000)
+
+**Symptom:** Either MinIO or the frontend fails to start.
+
+**Root Cause:** Both MinIO and the webpack dev server use port 9000.
+
+**Rule:** Never run MinIO and the frontend simultaneously. Stop one before
+starting the other.
+
+---
+
+## Deployment Checklist
+
+Use this checklist for every aarch64 SNO deployment:
+
+- [ ] Verify RHCOS image is aarch64 (not amd64)
+- [ ] Build all 6 aarch64 images on hypervisor
+- [ ] Push all images to internal OCP registry (using SA token)
+- [ ] Add ALL route hostnames to hypervisor `/etc/hosts`
+- [ ] Deploy RHBK with HTTPS URLs in hostname spec
+- [ ] Enable `ADMIN_EDIT` unmanaged attributes on realm
+- [ ] Create user with `org_id: "1234567"` (NO `org` prefix)
+- [ ] Deploy Kafka (AMQ Streams)
+- [ ] Create MinIO deployment and ALL 3 buckets (`insights-upload-perma`, `koku-bucket`, `ros-data`)
+- [ ] Create `cost-onprem-storage-credentials` secret
+- [ ] Install Helm chart with absolute `VALUES_FILE` path
+- [ ] Restart Koku API after first tenant creation
+- [ ] Flush Valkey cache
+- [ ] Generate nise data with `--write-monthly --ros-ocp-info`
