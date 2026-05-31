@@ -1,0 +1,80 @@
+---
+# OCP Virtualization ROS usage for VM GPU recommendation E2E.
+# Generates ocp_ros_vm_usage.csv with DCGM-style GPU columns (31 fields when gpu_count > 0).
+#
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_gpu.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        # Non-GPU baseline for filter[has_gpu]=false and gn1 exclusion checks
+        - vm_name: baseline-linux-no-gpu-01
+          namespace: production
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+        # Idle GPU (notification 50, classification idle)
+        - vm_name: gpu-idle-vm
+          namespace: ml-training
+          node_name: worker-gpu-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 16
+          memory_gib: 64
+          disk_gib: 500
+          gpu_count: 1
+          gpu_model: "NVIDIA A100-SXM4-80GB"
+          gpu_utilization: idle
+        # Underutilized MIG GPU (notification 51)
+        - vm_name: gpu-underutil-mig-vm
+          namespace: inference
+          node_name: worker-gpu-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA A100-SXM4-40GB"
+          gpu_mig_profile: "3g.20gb"
+          gpu_utilization: low
+        # Memory saturated on smaller GPU (notification 52)
+        - vm_name: gpu-memory-saturated-vm
+          namespace: inference
+          node_name: worker-gpu-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA T4"
+          gpu_utilization: saturated
+        # Compute saturated on large GPU (notification 53)
+        - vm_name: gpu-compute-saturated-vm
+          namespace: ml-training
+          node_name: worker-gpu-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 32
+          memory_gib: 128
+          disk_gib: 1000
+          gpu_count: 2
+          gpu_model: "NVIDIA A100-SXM4-80GB"
+          gpu_utilization: saturated
+        # Well-utilized GPU (has_gpu filter, no GPU notification)
+        - vm_name: gpu-healthy-vm
+          namespace: inference
+          node_name: worker-gpu-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA T4"
+          gpu_utilization: medium
