@@ -58,7 +58,7 @@ NOTIF_WINDOWS_SPIKE = 47
 NOTIF_CRASH_LOOP = 48
 NOTIF_DOWNSIZE_HELD = 49
 
-RECOGNITION_ONLY_PREFIXES = ("n1.", "gn1.")
+RECOGNITION_ONLY_PREFIXES = ("n1.",)
 
 
 @dataclass
@@ -557,5 +557,5 @@ class TestVMEnhancementsExtendedFlow:
         for row in resp.json().get("data") or []:
             inst = (row.get("recommended") or {}).get("instance_type") or ""
             assert not any(inst.startswith(p) for p in RECOGNITION_ONLY_PREFIXES), (
-                f"n1/gn1 types must not be recommended: {inst!r} on {row.get('vm_name')}"
+                f"n1 types must not be recommended: {inst!r} on {row.get('vm_name')}"
             )

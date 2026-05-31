@@ -18,6 +18,8 @@ iqe-cost-management-plugin/iqe_cost_management/data/openshift/
 | `ocp_report_business_hours.yml` | Business Hours E2E — 3 nodes, 3 namespaces (daytime/batch/nighttime workloads) with `--ros-ocp-info` |
 | `ocp_report_quota.yml` | Quota recommendation E2E — high pod requests + `resource_quota` used columns for ROS quota plugin |
 | `ocp_report_vm.yml` | VM recommendation E2E — `OCPVirtualMachineGenerator` (guest agent, idle, Linux/Windows) |
+| `ocp_report_vm_gpu.yml` | VM GPU E2E — GPU columns, classifications 50–53, `filter[has_gpu]`, gn1 matching |
+| `ocp_report_vm_enhancements.yml` | VM MVP enhancements — notifications 46–49, kernel reserve, gn1 catalog |
 | `ocp_report_ros_0.yml` | ROS optimization testing - multiple nodes with varied CPU/memory usage patterns |
 | `ocp_report_advanced.yml` | Complex OCP scenario with multiple nodes, namespaces, volumes, and labels |
 | `ocp_report_advanced_daily.yml` | Same as advanced but with daily data granularity |
