@@ -261,8 +261,8 @@ def generate_nise_data(
                      - "ocp_report_advanced.yml": Complex multi-node setup
     
     Returns:
-        Dict with keys: pod_usage_files, ros_usage_files, namespace_usage_files,
-        cluster_quota_files, node_label_files, namespace_label_files
+        Dict with keys: pod_usage_files, ros_usage_files, ros_vm_usage_files,
+        namespace_usage_files, cluster_quota_files, node_label_files, namespace_label_files
     """
     # Determine which YAML to use
     if iqe_template:
@@ -325,6 +325,7 @@ def generate_nise_data(
     files = {
         "pod_usage_files": [],
         "ros_usage_files": [],
+        "ros_vm_usage_files": [],
         "namespace_usage_files": [],
         "cluster_quota_files": [],
         "node_label_files": [],
@@ -340,6 +341,8 @@ def generate_nise_data(
                 
                 if "pod_usage" in f:
                     files["pod_usage_files"].append(full_path)
+                elif "ros_vm_usage" in f:
+                    files["ros_vm_usage_files"].append(full_path)
                 elif "ros_usage" in f:
                     files["ros_usage_files"].append(full_path)
                 elif "ros_namespace" in f or "namespace_usage" in f:
@@ -354,6 +357,12 @@ def generate_nise_data(
     # Fall back: if no ros_usage files, use pod_usage
     if not files["ros_usage_files"]:
         files["ros_usage_files"] = files["pod_usage_files"]
+
+    # VM ROS CSVs are separate from container ros_usage; expose combined list for uploads.
+    if files["ros_vm_usage_files"]:
+        files["ros_usage_files"] = list(
+            dict.fromkeys(files["ros_usage_files"] + files["ros_vm_usage_files"])
+        )
     
     return files
 

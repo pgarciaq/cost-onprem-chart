@@ -1,0 +1,57 @@
+---
+# OCP Virtualization ROS usage for VM recommendation E2E.
+# Generates ocp_ros_vm_usage.csv (15-minute intervals) via OCPVirtualMachineGenerator.
+#
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        # Active Linux VM with guest agent
+        - vm_name: web-server-linux-01
+          namespace: production
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+        # Idle Linux VM with guest agent
+        - vm_name: idle-vm-linux-01
+          namespace: dev
+          node_name: worker-3
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 40
+          idle: true
+        # Active Windows VM with guest agent
+        - vm_name: db-server-windows-01
+          namespace: production
+          node_name: worker-2
+          guest_os: windows
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 500
+        # Active Linux VM without guest agent
+        - vm_name: legacy-app-01
+          namespace: legacy
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: false
+          vcpu: 2
+          memory_gib: 4
+          disk_gib: 50
+        # Idle Windows VM without guest agent
+        - vm_name: idle-windows-legacy-01
+          namespace: legacy
+          node_name: worker-2
+          guest_os: windows
+          guest_agent: false
+          vcpu: 2
+          memory_gib: 4
+          disk_gib: 50
+          idle: true
