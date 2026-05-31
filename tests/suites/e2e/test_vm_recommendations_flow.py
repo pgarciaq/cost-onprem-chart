@@ -63,6 +63,10 @@ VM_IDLE = {
     "idle-vm-linux-01": "dev",
     "idle-windows-legacy-01": "legacy",
 }
+VM_ABANDONED = {
+    "abandoned-test-vm-01": "forgotten-project",
+}
+VM_NOTIFICATION_CODE_ABANDONED = 43
 
 
 @dataclass
@@ -141,6 +145,16 @@ def _find_vm_row(
         if row.get("vm_name") == vm_name and row.get("namespace") == namespace:
             return row
     return None
+
+
+def _vm_notification_codes(item: dict[str, Any]) -> set[int]:
+    codes: set[int] = set()
+    for entry in item.get("notifications") or []:
+        if isinstance(entry, dict) and entry.get("code") is not None:
+            codes.add(int(entry["code"]))
+        elif isinstance(entry, int):
+            codes.add(entry)
+    return codes
 
 
 @pytest.mark.e2e
@@ -432,3 +446,77 @@ class TestVMRecommendationsExtendedFlow:
             row = _find_vm_row(rows, vm_name, namespace)
             assert row, f"Missing VM: {vm_name}"
             assert vm_item_metadata(row).get("confidence") == "moderate"
+
+    def test_vm_abandoned_detected(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        vm_flow_context: VMFlowContext,
+    ):
+        resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_flow_context.auth,
+            {
+                "filter[cluster]": vm_flow_context.cluster_id,
+                "filter[is_abandoned]": "true",
+                "limit": 50,
+            },
+        )
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        if not rows:
+            pytest.skip("No abandoned VMs detected; ensure nise abandoned VM is in upload data")
+
+        for vm_name, namespace in VM_ABANDONED.items():
+            row = _find_vm_row(rows, vm_name, namespace)
+            assert row, f"Expected abandoned VM {vm_name}/{namespace} in filter[is_abandoned]=true"
+
+    def test_vm_abandoned_notification_43(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        vm_flow_context: VMFlowContext,
+    ):
+        resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_flow_context.auth,
+            {"filter[cluster]": vm_flow_context.cluster_id, "limit": 50},
+        )
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+
+        for vm_name, namespace in VM_ABANDONED.items():
+            row = _find_vm_row(rows, vm_name, namespace)
+            if not row:
+                pytest.skip(f"Abandoned VM {vm_name} not in recommendations yet")
+            assert VM_NOTIFICATION_CODE_ABANDONED in _vm_notification_codes(row), (
+                f"Expected notification code 43 on {vm_name}: {row.get('notifications')}"
+            )
+
+    def test_vm_abandoned_supersedes_idle(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        vm_flow_context: VMFlowContext,
+    ):
+        resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_flow_context.auth,
+            {"filter[cluster]": vm_flow_context.cluster_id, "limit": 50},
+        )
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+
+        for vm_name, namespace in VM_ABANDONED.items():
+            row = _find_vm_row(rows, vm_name, namespace)
+            if not row:
+                pytest.skip(f"Abandoned VM {vm_name} not in recommendations yet")
+            meta = vm_item_metadata(row)
+            assert meta.get("is_abandoned") is True
+            assert meta.get("is_idle") is False

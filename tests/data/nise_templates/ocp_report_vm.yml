@@ -55,3 +55,13 @@ generators:
           memory_gib: 4
           disk_gib: 50
           idle: true
+        # Abandoned VM: zero CPU/memory for abandoned detection (notification code 43)
+        - vm_name: abandoned-test-vm-01
+          namespace: forgotten-project
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 50
+          abandoned: true
