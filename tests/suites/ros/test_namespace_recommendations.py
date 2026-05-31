@@ -8,7 +8,7 @@ from typing import Any, Optional
 import pytest
 import requests
 
-from suites.ros.test_recommendations import get_fresh_token
+from conftest import obtain_user_jwt_token_for
 
 
 def _namespaces_url(ros_api_url: str) -> str:
@@ -37,11 +37,16 @@ def _fetch_namespaces(
 
 
 @pytest.fixture
-def namespace_auth(keycloak_config, cluster_config, http_session):
-    auth = get_fresh_token(keycloak_config, cluster_config, http_session)
-    if not auth:
-        pytest.skip("Could not obtain JWT token")
-    return auth
+def namespace_auth(keycloak_config, cluster_config):
+    """Use a user password-grant JWT (not operator client_credentials).
+
+    Operator SA tokens are rejected or return empty ROS lists through the gateway
+    when insights-rbac is disabled and ENHANCED_ORG_ADMIN relies on org-admin.
+    """
+    token = obtain_user_jwt_token_for(
+        keycloak_config, cluster_config, username="user_dev", password="redhat123",
+    )
+    return token.authorization_header
 
 
 @pytest.mark.ros
