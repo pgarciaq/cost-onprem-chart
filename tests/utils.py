@@ -675,6 +675,7 @@ def create_upload_package_from_files(
     end_date: Optional[datetime] = None,
     node_label_files: Optional[list[str]] = None,
     namespace_label_files: Optional[list[str]] = None,
+    extra_resource_optimization_files: Optional[list[str]] = None,
 ) -> str:
     """Create a tar.gz upload package from NISE-generated files.
     
@@ -689,6 +690,7 @@ def create_upload_package_from_files(
         end_date: End date for the report period
         node_label_files: Optional list of paths to node label CSV files
         namespace_label_files: Optional list of paths to namespace label CSV files
+        extra_resource_optimization_files: Optional extra ROS files (e.g. cluster_instance_types.json)
     
     Returns:
         Path to the created tar.gz file
@@ -715,7 +717,9 @@ def create_upload_package_from_files(
 
     # Get just the filenames for the manifest
     pod_filenames = [os.path.basename(f) for f in pod_usage_files]
+    extra_ros = extra_resource_optimization_files or []
     ros_filenames = [os.path.basename(f) for f in ros_usage_files]
+    ros_filenames.extend(os.path.basename(f) for f in extra_ros)
     node_label_filenames = [os.path.basename(f) for f in (node_label_files or [])]
     namespace_label_filenames = [os.path.basename(f) for f in (namespace_label_files or [])]
     
@@ -746,6 +750,8 @@ def create_upload_package_from_files(
             tar.add(filepath, arcname=os.path.basename(filepath))
         # Add ROS usage files
         for filepath in ros_usage_files:
+            tar.add(filepath, arcname=os.path.basename(filepath))
+        for filepath in extra_ros:
             tar.add(filepath, arcname=os.path.basename(filepath))
         # Add node label files if provided
         if node_label_files:
