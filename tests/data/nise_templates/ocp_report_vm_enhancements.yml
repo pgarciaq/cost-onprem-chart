@@ -1,0 +1,70 @@
+---
+# VM enhancement scenarios for ROS-OCP phase 11 (notifications 46-49, settings, catalog).
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_enhancements.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        # Windows vs Linux pair: same allocation; Windows kernel reserve lowers memory recommendation.
+        - vm_name: windows-kernel-compare-01
+          namespace: vm-enhancements
+          node_name: worker-1
+          guest_os: windows
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 100
+          fixed_usage:
+            cpu_pct: 0.40
+            mem_pct: 0.65
+        - vm_name: linux-kernel-compare-01
+          namespace: vm-enhancements
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 100
+          fixed_usage:
+            cpu_pct: 0.40
+            mem_pct: 0.65
+        # Windows update spike (notification 47): P99 >> P95 on CPU.
+        - vm_name: windows-update-spike-01
+          namespace: vm-enhancements
+          node_name: worker-2
+          guest_os: windows
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 16
+          disk_gib: 100
+          windows_update_spike: true
+        # Crash loop (notification 48): elevated restart_count per interval.
+        - vm_name: crash-loop-vm-01
+          namespace: vm-enhancements
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          crash_loop: true
+        # Unknown OS (notification 46): empty guest_os.
+        - vm_name: unknown-os-vm-01
+          namespace: vm-enhancements
+          node_name: worker-1
+          guest_os: ""
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 50
+        # Performance downsize held (notification 49): last day spikes CPU P95.
+        - vm_name: downsize-unstable-vm-01
+          namespace: vm-enhancements
+          node_name: worker-3
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 16
+          disk_gib: 100
+          downsize_unstable: true
