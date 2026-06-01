@@ -1,0 +1,65 @@
+---
+# Container GPU ROS data for node-level time-slicing E2E (notification 36).
+# NISE supports DCGM profiling overrides on each gpu: block via sm_active_avg,
+# tensor_pipe_active_avg, dram_active_avg, and fb_usage_avg (MiB).
+# Use with generate_nise_data(..., iqe_template="ocp_report_gpu_timeslicing.yml", include_ros=True)
+generators:
+  - OCPGenerator:
+      nodes:
+        - node:
+          node_name: gpu-ts-node-1
+          cpu_cores: 32
+          memory_gig: 256
+          resource_id: i-gpu-ts-001
+          namespaces:
+            ml-training:
+              namespace_labels: label_team:ml|label_purpose:training
+              pods:
+                - pod:
+                  pod_name: ts-worker-a
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  labels: label_app:pytorch|label_workload:training
+                  gpus:
+                    - gpu:
+                      gpu_model: "Tesla T4"
+                      gpu_memory_capacity_mib: 15360
+                      sm_active_avg: 0.12
+                      tensor_pipe_active_avg: 0.05
+                      dram_active_avg: 0.08
+                      fb_usage_avg: 1200.0
+                - pod:
+                  pod_name: ts-worker-b
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  labels: label_app:pytorch|label_workload:training
+                  gpus:
+                    - gpu:
+                      gpu_model: "Tesla T4"
+                      gpu_memory_capacity_mib: 15360
+                      sm_active_avg: 0.10
+                      tensor_pipe_active_avg: 0.04
+                      dram_active_avg: 0.06
+                      fb_usage_avg: 1000.0
+                - pod:
+                  pod_name: ts-worker-c
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  labels: label_app:tensorflow|label_workload:inference
+                  gpus:
+                    - gpu:
+                      gpu_model: "Tesla T4"
+                      gpu_memory_capacity_mib: 15360
+                      sm_active_avg: 0.15
+                      tensor_pipe_active_avg: 0.06
+                      dram_active_avg: 0.07
+                      fb_usage_avg: 1100.0
