@@ -1,0 +1,61 @@
+---
+# VM notification matrix (codes 37–42) for E2E assertions.
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_notifications.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        - vm_name: disk-grow-hypervisor-01
+          namespace: vm-notifications
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: false
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          disk_growing_hypervisor: true
+        - vm_name: no-guest-agent-01
+          namespace: vm-notifications
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: false
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 50
+        - vm_name: high-io-vm-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          high_io: true
+        - vm_name: disk-filling-guest-01
+          namespace: vm-notifications
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 200
+          disk_filling_guest: true
+        - vm_name: instance-type-rec-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 16
+          disk_gib: 100
+          oversized_for_instance_type: true
+        - vm_name: disk-critical-01
+          namespace: vm-notifications
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          disk_critical: true
