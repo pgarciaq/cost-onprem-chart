@@ -65,3 +65,25 @@ generators:
           memory_gib: 8
           disk_gib: 50
           abandoned: true
+        # Performance downsize held (notification 49) — matches IQE downsize-unstable-vm-01
+        - vm_name: downsize-unstable-vm-01
+          namespace: vm-enhancements
+          node_name: worker-3
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 16
+          disk_gib: 100
+          downsize_unstable: true
+        # Preference metadata via cluster_instance_types.json (extended preference E2E)
+        - vm_name: preference-server-vm
+          namespace: production
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          fixed_usage:
+            cpu_pct: 0.45
+            mem_pct: 0.60

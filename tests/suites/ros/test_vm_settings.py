@@ -99,6 +99,49 @@ class TestVMSettingsE2E:
         assert thresholds.get("cpu_percentile_cost") is not None
         assert thresholds.get("idle_cpu_mc") is not None
 
+    def test_vm_adaptive_margin_in_settings(
+        self,
+        ros_api_url: str,
+        vm_settings_auth: dict,
+        http_session: requests.Session,
+    ):
+        """GET /settings/vm exposes cpu_adaptive_margin_enabled (default CI)."""
+        resp = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "cpu_adaptive_margin_enabled" in body
+        assert isinstance(body["cpu_adaptive_margin_enabled"], bool)
+
+    def test_vm_windows_kernel_reserve_in_settings(
+        self,
+        ros_api_url: str,
+        vm_settings_auth: dict,
+        http_session: requests.Session,
+    ):
+        """GET /settings/vm exposes windows_kernel_reserve_gib (default CI)."""
+        resp = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        floors = resp.json().get("memory_floors") or {}
+        assert "windows_kernel_reserve_gib" in floors
+        assert isinstance(floors["windows_kernel_reserve_gib"], (int, float))
+
+    def test_vm_history_retention_days_in_settings(
+        self,
+        ros_api_url: str,
+        vm_settings_auth: dict,
+        http_session: requests.Session,
+    ):
+        """GET /settings/vm exposes read-only history_retention_days (default CI)."""
+        resp = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "history_retention_days" in body
+        assert isinstance(body["history_retention_days"], int)
+        assert body["history_retention_days"] >= 1
+
     def test_vm_settings_put_optional(
         self,
         ros_api_url: str,

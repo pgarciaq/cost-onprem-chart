@@ -187,3 +187,56 @@ class TestVMRecommendationsE2E:
         assert filtered.status_code == 200, filtered.text
         for row in filtered.json().get("data") or []:
             assert row.get("namespace") == namespace
+
+    def test_vm_recommendations_exist(
+        self,
+        ros_api_url: str,
+        vm_auth: dict,
+        http_session: requests.Session,
+    ):
+        """Default CI: VM list returns 200 and plugin is reachable (data optional)."""
+        resp = _fetch_vm_list(http_session, ros_api_url, vm_auth, {"limit": 1})
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "meta" in body
+        assert "data" in body
+        assert body["meta"].get("count", 0) >= 0
+
+    def test_vm_detail_preference_fields_when_configured(
+        self,
+        ros_api_url: str,
+        vm_auth: dict,
+        http_session: requests.Session,
+    ):
+        """When cluster preferences are ingested, detail exposes preference metadata."""
+        resp = _fetch_vm_list(http_session, ros_api_url, vm_auth, {"limit": 100})
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        if not rows:
+            pytest.skip("No VM recommendation data in cluster")
+
+        for row in rows:
+            meta = row.get("metadata") or {}
+            if not meta.get("preference_name"):
+                continue
+            detail = _fetch_vm_detail(
+                http_session,
+                ros_api_url,
+                vm_auth,
+                {
+                    "vm_name": row["vm_name"],
+                    "namespace": row["namespace"],
+                    "cluster_uuid": row["cluster_uuid"],
+                },
+            )
+            assert detail.status_code == 200, detail.text
+            detail_meta = detail.json().get("metadata") or {}
+            assert detail_meta.get("preference_name")
+            assert detail_meta.get("preference_class")
+            return
+        pytest.skip(
+            "No VM with preference_name in list; upload cluster_instance_types.json "
+            "with vm_preferences (see test_vm_preference_flow extended E2E)"
+        )
