@@ -99,6 +99,32 @@ pytest tests/suites/e2e/test_scenarios.py -v -m scenario
 ./scripts/run-pytest.sh -- -m "e2e and smoke"
 ```
 
+## VM tests: default CI vs extended
+
+| Suite | Path | Marker | When to run |
+|-------|------|--------|-------------|
+| VM smoke (API contract) | `tests/suites/ros/test_vm_smoke.py` | `@pytest.mark.smoke` | Every PR (`./scripts/run-pytest.sh --ros`) |
+| VM list/detail (basic) | `tests/suites/ros/test_vm_recommendations.py` | `@pytest.mark.integration` | Every PR |
+| VM settings | `tests/suites/ros/test_vm_settings.py` | integration | Every PR |
+| VM notifications matrix | `tests/suites/e2e/test_vm_notifications_matrix.py` | `@pytest.mark.extended` | Weekly / before release |
+| VM GPU flow | `tests/suites/e2e/test_vm_gpu_flow.py` | extended | Weekly |
+| VM preference flow | `tests/suites/e2e/test_vm_preference_flow.py` | extended | Weekly |
+| VM recommendations flow | `tests/suites/e2e/test_vm_recommendations_flow.py` | extended | Weekly |
+| VM instance types | `tests/suites/e2e/test_vm_instance_types_flow.py` | extended | Weekly |
+| VM enhancements | `tests/suites/e2e/test_vm_enhancements_flow.py` | extended | Weekly |
+| VM MVP promotions | `tests/suites/e2e/test_vm_mvp_promotions_flow.py` | extended | Weekly |
+
+**Recommendation:** Run default CI on every PR; schedule
+`NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm` at least weekly (or before
+on-prem releases) so notification codes, dual-engine divergence, GPU device CSVs, and
+`cluster_instance_types.json` preference ingest stay validated.
+
+Smoke tests (`test_vm_smoke.py`) catch regressions such as removed filters
+(`filter[has_gpu]`, `filter[engine]`, `filter[confidence]`) or broken history pagination
+without requiring NISE payloads for each scenario.
+
+---
+
 ## VM MVP promotions flow (`test_vm_mvp_promotions_flow.py`)
 
 Extended E2E for phase-11 VM promotion scenarios: adaptive CPU margin (`variable-cpu-vm`),
