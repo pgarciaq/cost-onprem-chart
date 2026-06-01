@@ -14,6 +14,7 @@ Key components:
 - Cleanup utilities
 """
 
+import csv
 import json
 import os
 import shutil
@@ -26,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import requests
+import yaml
 
 from utils import (
     create_upload_package_from_files,
@@ -272,6 +274,81 @@ def list_nise_templates() -> List[str]:
 get_iqe_template_path = get_nise_template_path
 list_iqe_templates = list_nise_templates
 
+_GIGABYTE = 1024**3
+_CRQ_OPERATOR_EXTRA_COLUMNS = (
+    "storage_request_hard",
+    "storage_request_used",
+    "pods_hard",
+    "pods_used",
+    "object_count_hard",
+    "object_count_used",
+    "namespaces",
+)
+
+
+def _cluster_quota_enrichment_from_yaml(yaml_path: str) -> Dict[str, Dict[str, str]]:
+    """Build per-CRQ-name column values from static_report cluster_resource_quotas."""
+    with open(yaml_path, "r", encoding="utf-8") as handle:
+        doc = yaml.safe_load(handle) or {}
+    generators = doc.get("generators") or []
+    quotas: Dict[str, Dict[str, str]] = {}
+    for gen in generators:
+        if not isinstance(gen, dict):
+            continue
+        ocp = gen.get("OCPGenerator") or gen.get("ocpgenerator")
+        if not isinstance(ocp, dict):
+            continue
+        for entry in ocp.get("cluster_resource_quotas") or []:
+            name = entry.get("name") or entry.get("cluster_quota_name")
+            if not name:
+                continue
+            storage_hard = entry.get("storage_request_hard")
+            if storage_hard is None and "storage_request_hard_gig" in entry:
+                storage_hard = int(float(entry["storage_request_hard_gig"]) * _GIGABYTE)
+            storage_used = entry.get("storage_request_used")
+            if storage_used is None and "storage_request_used_gig" in entry:
+                storage_used = int(float(entry["storage_request_used_gig"]) * _GIGABYTE)
+            namespaces = entry.get("namespaces", "")
+            if isinstance(namespaces, list):
+                namespaces = ",".join(str(n).strip() for n in namespaces if str(n).strip())
+            quotas[str(name)] = {
+                "storage_request_hard": str(storage_hard or 0),
+                "storage_request_used": str(storage_used or 0),
+                "pods_hard": str(entry.get("pods_hard", 0)),
+                "pods_used": str(entry.get("pods_used", 0)),
+                "object_count_hard": str(entry.get("object_count_hard", 0)),
+                "object_count_used": str(entry.get("object_count_used", 0)),
+                "namespaces": str(namespaces),
+            }
+    return quotas
+
+
+def enrich_cluster_quota_csv_files(
+    csv_paths: List[str],
+    quotas_by_name: Dict[str, Dict[str, str]],
+) -> None:
+    """Add operator-aligned CRQ columns to NISE cluster-quota CSV when missing."""
+    if not quotas_by_name:
+        return
+    for path in csv_paths:
+        with open(path, newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            if not reader.fieldnames:
+                continue
+            missing = [c for c in _CRQ_OPERATOR_EXTRA_COLUMNS if c not in reader.fieldnames]
+            if not missing:
+                continue
+            fieldnames = list(reader.fieldnames) + missing
+            rows = list(reader)
+        for row in rows:
+            extra = quotas_by_name.get(row.get("cluster_quota_name", ""), {})
+            for col in missing:
+                row[col] = extra.get(col, "0" if col.startswith("object_count") else "")
+        with open(path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
 
 def generate_nise_data(
     cluster_id: str,
@@ -403,6 +480,12 @@ def generate_nise_data(
     vm_ros_files = files["ros_vm_usage_files"] + files["ros_vm_gpu_device_files"]
     if vm_ros_files:
         files["ros_usage_files"] = list(dict.fromkeys(files["ros_usage_files"] + vm_ros_files))
+
+    if files["cluster_quota_files"] and iqe_template:
+        enrich_cluster_quota_csv_files(
+            files["cluster_quota_files"],
+            _cluster_quota_enrichment_from_yaml(yaml_path),
+        )
     
     return files
 
