@@ -1,0 +1,60 @@
+# NISE template for VM MVP promotion E2E (adaptive margin, multi-GPU, history, etc.)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: 2026-05-01
+      end_date: 2026-05-05
+      vms:
+        - vm_name: variable-cpu-vm
+          namespace: batch-jobs
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          cpu_pattern: variable
+        - vm_name: u1-medium-vm
+          namespace: production
+          guest_os: linux
+          guest_agent: true
+          vcpu: 1
+          memory_gib: 2
+          disk_gib: 30
+          fixed_usage:
+            cpu_pct: 0.35
+            mem_pct: 0.55
+        - vm_name: gpu-time-slice-vm
+          namespace: inference
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA T4"
+          gpu_utilization: low
+        - vm_name: multi-gpu-mixed-vm
+          namespace: ml-training
+          guest_os: linux
+          guest_agent: true
+          vcpu: 16
+          memory_gib: 64
+          disk_gib: 500
+          gpu_count: 2
+          gpu_devices:
+            - uuid: "GPU-aaa-111"
+              model: "NVIDIA A100-SXM4-80GB"
+              utilization: high
+            - uuid: "GPU-bbb-222"
+              model: "NVIDIA A100-SXM4-80GB"
+              utilization: idle
+        - vm_name: gpu-mig-optimal-vm
+          namespace: inference
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA A100-SXM4-40GB"
+          gpu_mig_profile: "3g.20gb"
+          gpu_utilization: low
