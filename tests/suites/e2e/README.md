@@ -138,6 +138,23 @@ NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_mvp_promotions_fl
 
 ---
 
+## PVC recommendations (`test_pvc_recommendations.py`)
+
+Integration tests in `tests/suites/ros/test_pvc_recommendations.py` validate the PVC list
+API (`GET .../recommendations/openshift/pvcs`), including `filter[storageclass]`,
+`order_by` / `order_how`, structured `estimated_monthly_savings`, and `mounted_by` when
+storage CSV reports a pod name. Requires migration **000114** on the ROS database and
+at least one ingestion cycle with storage usage data.
+
+Detail endpoint (`GET .../pvcs/detail`) is covered by ros-ocp-backend integration tests;
+extend chart E2E when a dedicated PVC detail flow is added.
+
+```bash
+NAMESPACE=cost-onprem ./scripts/run-pytest.sh --ros -k pvc_recommendations
+```
+
+---
+
 ## Namespace recommendations flow (`test_namespace_recommendations_flow.py`)
 
 Extended E2E that validates the namespace recommendation pipeline end-to-end:
