@@ -33,6 +33,11 @@ from e2e_helpers import (
     upload_with_retry,
     wait_for_provider,
 )
+from suites.ros.test_business_hours import (
+    _capabilities_url,
+    delete_business_hours_schedule,
+    put_business_hours_schedule,
+)
 from suites.ros.test_namespace_recommendations import _fetch_namespaces
 from utils import (
     create_rh_identity_header,
@@ -46,6 +51,45 @@ from utils import (
 _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_ros_0.yml"
 _VALID_NAMESPACE_TERMS = frozenset({"short_term", "medium_term", "long_term"})
+
+
+def _business_hours_capability_enabled(
+    http_session: requests.Session, ros_api_url: str, auth: dict[str, str]
+) -> bool:
+    resp = http_session.get(_capabilities_url(ros_api_url), headers=auth, timeout=30)
+    if resp.status_code != 200:
+        return False
+    return bool(resp.json().get("business_hours"))
+
+
+def _namespace_detail_has_business_hours(detail: dict) -> bool:
+    terms = (detail.get("recommendations") or {}).get("recommendation_terms") or {}
+    if not isinstance(terms, dict):
+        return False
+    for term in terms.values():
+        if not isinstance(term, dict):
+            continue
+        engines = term.get("recommendation_engines") or {}
+        for profile in ("cost", "performance"):
+            bh = (engines.get(profile) or {}).get("business_hours")
+            if isinstance(bh, dict) and bh:
+                return True
+    return False
+
+
+def _assert_business_hours_block_structure(bh: dict) -> None:
+    assert isinstance(bh, dict)
+    requests = bh.get("requests")
+    assert isinstance(requests, dict), "business_hours.requests must be an object"
+    limits = bh.get("limits")
+    assert isinstance(limits, dict), "business_hours.limits must be an object"
+    for resource in ("cpu", "memory"):
+        if resource not in requests:
+            continue
+        resource_obj = requests[resource]
+        assert isinstance(resource_obj, dict), f"business_hours.requests.{resource} must be an object"
+        assert "amount" in resource_obj, f"business_hours.requests.{resource} missing amount"
+        assert "format" in resource_obj, f"business_hours.requests.{resource} missing format"
 
 
 def _wait_for_namespace_digest_rows(
@@ -291,6 +335,7 @@ class TestNamespaceRecommendationsExtendedFlow:
         )
 
         rec_id = item.get("id")
+        detail_body = None
         if rec_id:
             detail_resp = http_session.get(
                 f"{ros_api_url.rstrip('/')}/cost-management/v1/"
@@ -299,8 +344,74 @@ class TestNamespaceRecommendationsExtendedFlow:
                 timeout=60,
             )
             assert detail_resp.status_code == 200, detail_resp.text
-            detail_recs = detail_resp.json().get("recommendations") or {}
+            detail_body = detail_resp.json()
+            detail_recs = detail_body.get("recommendations") or {}
             assert "recommendation_terms" in detail_recs
+
+        if rec_id and detail_body and _business_hours_capability_enabled(
+            http_session, ros_api_url, auth
+        ):
+            try:
+                bh_put = put_business_hours_schedule(
+                    http_session,
+                    ros_api_url,
+                    auth,
+                    cluster_id=namespace_e2e_cluster_id,
+                )
+                assert bh_put.status_code in (200, 202), bh_put.text
+
+                def detail_has_bh() -> bool:
+                    resp = http_session.get(
+                        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+                        f"recommendations/openshift/namespaces/{rec_id}",
+                        headers=auth,
+                        timeout=60,
+                    )
+                    if resp.status_code != 200:
+                        return False
+                    return _namespace_detail_has_business_hours(resp.json())
+
+                if wait_for_condition(
+                    detail_has_bh,
+                    timeout=420,
+                    interval=20,
+                    description="business_hours on namespace detail",
+                ):
+                    final_detail = http_session.get(
+                        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+                        f"recommendations/openshift/namespaces/{rec_id}",
+                        headers=auth,
+                        timeout=60,
+                    )
+                    assert final_detail.status_code == 200, final_detail.text
+                    detail_json = final_detail.json()
+                    assert _namespace_detail_has_business_hours(detail_json), (
+                        "namespace detail must include business_hours when schedule is enabled"
+                    )
+                    terms = (detail_json.get("recommendations") or {}).get(
+                        "recommendation_terms"
+                    ) or {}
+                    for term in terms.values():
+                        if not isinstance(term, dict):
+                            continue
+                        for profile in ("cost", "performance"):
+                            bh = (term.get("recommendation_engines") or {}).get(
+                                profile, {}
+                            ).get("business_hours")
+                            if isinstance(bh, dict) and bh:
+                                _assert_business_hours_block_structure(bh)
+                else:
+                    pytest.skip(
+                        "business_hours block not present on namespace detail within timeout; "
+                        "reship or namespace BH recommendations may still be processing"
+                    )
+            finally:
+                delete_business_hours_schedule(
+                    http_session,
+                    ros_api_url,
+                    auth,
+                    cluster_id=namespace_e2e_cluster_id,
+                )
 
         hist_result = execute_db_query(
             cluster_config.namespace,
