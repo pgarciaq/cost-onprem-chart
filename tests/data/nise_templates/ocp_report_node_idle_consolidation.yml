@@ -1,0 +1,139 @@
+---
+# Multi-node ROS template for node idle_state and consolidation E2E.
+# - node-zombie / node-idle: near-zero usage for idle classification
+# - m5-node-{1..4}: lightly loaded workers for underutilized + node_count_reduction
+generators:
+  - OCPGenerator:
+      nodes:
+        - node:
+          node_name: node-zombie
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 29999001
+          namespaces:
+            zombie-ns:
+              pods:
+                - pod:
+                  pod_name: zombie-pod-1
+                  cpu_request: 0.5
+                  mem_request_gig: 1
+                  cpu_limit: 1
+                  mem_limit_gig: 2
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.001
+                  mem_usage_gig:
+                    full_period: 0.01
+                  labels: label_app:zombie
+        - node:
+          node_name: node-idle
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 29999002
+          namespaces:
+            idle-ns:
+              pods:
+                - pod:
+                  pod_name: idle-pod-1
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.05
+                  mem_usage_gig:
+                    full_period: 0.2
+                  labels: label_app:idle
+                - pod:
+                  pod_name: idle-pod-2
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.04
+                  mem_usage_gig:
+                    full_period: 0.15
+                  labels: label_app:idle
+        - node:
+          node_name: m5-node-1
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 29999011
+          namespaces:
+            consolidate-a:
+              pods:
+                - pod:
+                  pod_name: m5-pod-1a
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.4
+                  mem_usage_gig:
+                    full_period: 1.5
+                  labels: label_app:consolidate
+        - node:
+          node_name: m5-node-2
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 29999012
+          namespaces:
+            consolidate-b:
+              pods:
+                - pod:
+                  pod_name: m5-pod-2a
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.35
+                  mem_usage_gig:
+                    full_period: 1.2
+                  labels: label_app:consolidate
+        - node:
+          node_name: m5-node-3
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 29999013
+          namespaces:
+            consolidate-c:
+              pods:
+                - pod:
+                  pod_name: m5-pod-3a
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.38
+                  mem_usage_gig:
+                    full_period: 1.3
+                  labels: label_app:consolidate
+        - node:
+          node_name: m5-node-4
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 29999014
+          namespaces:
+            consolidate-d:
+              pods:
+                - pod:
+                  pod_name: m5-pod-4a
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.32
+                  mem_usage_gig:
+                    full_period: 1.1
+                  labels: label_app:consolidate
