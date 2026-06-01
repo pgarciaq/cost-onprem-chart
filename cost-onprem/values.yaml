@@ -82,9 +82,10 @@ ros:
     # Dev-only static bearer when projected SA token is unavailable (must match Koku if set).
     tagsDevToken: ""
 
-    # Plugin allowlist/denylist (empty enabled = ros-ocp-backend compiled defaults).
-    # When setting enabledPlugins, include "quota" and "cluster-quota" for OpenShift
-    # ResourceQuota and ClusterResourceQuota recommendations (cluster-quota works best with quota).
+    # Plugin allowlist/denylist. Empty enabledPlugins enables all native plugins
+    # (including quota and cluster-quota); kruize is excluded by ros-ocp-backend.
+    # Set a comma-separated allowlist only to restrict plugins (must include
+    # "quota" and "cluster-quota" for ResourceQuota and ClusterResourceQuota APIs).
     enabledPlugins: ""
     disabledPlugins: ""
 
