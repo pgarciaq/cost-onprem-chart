@@ -48,7 +48,14 @@ _CONTAINER_ENV_LOCKS = {
 }
 
 
-def _threshold_settings_base(ros_api_url: str) -> str:
+def _threshold_settings_base(ros_api_url: str, recommendation_type: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        f"recommendations/openshift/settings/{recommendation_type}"
+    )
+
+
+def _threshold_settings_deprecated_base(ros_api_url: str) -> str:
     return (
         f"{ros_api_url.rstrip('/')}/cost-management/v1/"
         "recommendations/openshift/settings/thresholds"
@@ -71,9 +78,8 @@ def _get_thresholds(
     recommendation_type: str,
 ) -> requests.Response:
     return session.get(
-        _threshold_settings_base(ros_api_url),
+        _threshold_settings_base(ros_api_url, recommendation_type),
         headers=auth,
-        params={"recommendation_type": recommendation_type},
         timeout=30,
     )
 
@@ -86,9 +92,8 @@ def _put_thresholds(
     body: dict[str, Any],
 ) -> requests.Response:
     return session.put(
-        _threshold_settings_base(ros_api_url),
+        _threshold_settings_base(ros_api_url, recommendation_type),
         headers={**auth, "Content-Type": "application/json"},
-        params={"recommendation_type": recommendation_type},
         json=body,
         timeout=60,
     )
@@ -101,9 +106,8 @@ def _delete_thresholds(
     recommendation_type: str,
 ) -> requests.Response:
     return session.delete(
-        _threshold_settings_base(ros_api_url),
+        _threshold_settings_base(ros_api_url, recommendation_type),
         headers=auth,
-        params={"recommendation_type": recommendation_type},
         timeout=60,
     )
 
@@ -228,14 +232,32 @@ class TestThresholdSettingsE2E:
             for field in _TYPE_EXPECTED_FIELDS[rec_type]:
                 assert field in body, f"{rec_type} missing {field!r}"
 
-    def test_threshold_get_requires_recommendation_type(
+    def test_threshold_deprecated_alias_still_works(
         self,
         ros_api_url: str,
         threshold_auth: dict,
         http_session: requests.Session,
     ):
         resp = http_session.get(
-            _threshold_settings_base(ros_api_url),
+            _threshold_settings_deprecated_base(ros_api_url),
+            headers=threshold_auth,
+            params={"recommendation_type": "container"},
+            timeout=30,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.headers.get("Deprecation") == "true"
+        link = resp.headers.get("Link", "")
+        assert "/settings/container" in link
+        assert 'rel="successor-version"' in link
+
+    def test_threshold_deprecated_get_requires_recommendation_type(
+        self,
+        ros_api_url: str,
+        threshold_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            _threshold_settings_deprecated_base(ros_api_url),
             headers=threshold_auth,
             timeout=30,
         )
@@ -244,13 +266,18 @@ class TestThresholdSettingsE2E:
         assert body.get("status") == "error"
         assert "recommendation_type" in body.get("message", "").lower()
 
-    def test_threshold_get_invalid_type_returns_400(
+    def test_threshold_deprecated_get_invalid_type_returns_400(
         self,
         ros_api_url: str,
         threshold_auth: dict,
         http_session: requests.Session,
     ):
-        resp = _get_thresholds(http_session, ros_api_url, threshold_auth, "invalid")
+        resp = http_session.get(
+            _threshold_settings_deprecated_base(ros_api_url),
+            headers=threshold_auth,
+            params={"recommendation_type": "invalid"},
+            timeout=30,
+        )
         assert resp.status_code == 400, resp.text
         assert "recommendation_type" in resp.json().get("message", "").lower()
 
