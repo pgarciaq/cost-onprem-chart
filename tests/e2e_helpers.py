@@ -167,16 +167,37 @@ def is_nise_available() -> bool:
         return False
 
 
+def _local_nise_repo_path() -> Optional[str]:
+    """Sibling nise checkout (VM generators require a recent koku-nise)."""
+    env_path = os.environ.get("NISE_PATH")
+    if env_path and os.path.isdir(env_path):
+        return env_path
+    sibling = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "nise")
+    )
+    if os.path.isfile(os.path.join(sibling, "pyproject.toml")):
+        return sibling
+    return None
+
+
 def install_nise() -> bool:
-    """Attempt to install NISE via pip."""
+    """Install NISE: prefer editable sibling checkout, else PyPI koku-nise."""
     try:
-        print("  Installing koku-nise...")
+        local_nise = _local_nise_repo_path()
+        if local_nise:
+            print(f"  Installing koku-nise from {local_nise} (editable)...")
+            cmd = ["pip", "install", "-e", local_nise]
+        else:
+            print("  Installing koku-nise from PyPI...")
+            cmd = ["pip", "install", "koku-nise>=4.0.0"]
         result = subprocess.run(
-            ["pip", "install", "koku-nise"],
+            cmd,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=300,
         )
+        if result.returncode != 0 and result.stderr:
+            print(f"  NISE install stderr: {result.stderr[-500:]}")
         return result.returncode == 0
     except Exception:
         return False
