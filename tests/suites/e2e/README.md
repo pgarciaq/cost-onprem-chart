@@ -138,9 +138,24 @@ NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_mvp_promotions_fl
 
 ---
 
+## Namespace recommendations flow (`test_namespace_recommendations_flow.py`)
+
+Extended E2E that validates the namespace recommendation pipeline end-to-end:
+source registration → NISE data generation (with `--ros-ocp-info`) → upload →
+Koku processing → ROS ingestion → namespace recommendations available via
+`/recommendations/openshift/namespaces`. Verifies both `all_hours` and
+`business_hours` schedule types when business hours are configured.
+
+```bash
+NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k namespace_recommendations_flow
+```
+
+---
+
 ## Related Files
 
 - `test_complete_flow.py` - Full E2E data flow tests (source → upload → processing → recommendations)
+- `test_namespace_recommendations_flow.py` - Namespace recommendation pipeline E2E
 - `test_vm_mvp_promotions_flow.py` - VM MVP promotion and multi-GPU device detail E2E
 - `test_smoke.py` - Quick smoke tests for E2E validation
 - `conftest.py` - Shared fixtures for E2E tests
