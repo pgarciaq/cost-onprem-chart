@@ -99,6 +99,8 @@ class TestClusterQuotaRecommendationsE2E:
         assert item.get("cluster_uuid"), "row must include cluster_uuid"
         assert item.get("recommendation_type") in VALID_CLUSTER_QUOTA_RECOMMENDATION_TYPES
         assert item.get("risk_level") in VALID_CLUSTER_QUOTA_RISK_LEVELS
+        if "namespaces" in item:
+            assert isinstance(item["namespaces"], list)
 
         for block_name in ("quota_hard", "quota_used", "quota_recommended"):
             block = item.get(block_name)
@@ -141,6 +143,53 @@ class TestClusterQuotaRecommendationsE2E:
         assert filtered.status_code == 200, filtered.text
         for item in filtered.json().get("data") or []:
             assert item.get("cluster_uuid") == cluster_uuid
+
+    def test_cluster_quota_filter_by_namespace(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 20}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        target_ns = None
+        target_row = None
+        for item in items:
+            namespaces = item.get("namespaces") or []
+            if namespaces:
+                target_ns = namespaces[0]
+                target_row = item
+                break
+        if not target_ns:
+            pytest.skip("No cluster quota rows with namespaces membership populated")
+
+        filtered = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[namespace]": target_ns, "limit": 50},
+        )
+        assert filtered.status_code == 200, filtered.text
+        filtered_items = filtered.json().get("data") or []
+        assert filtered_items, "filter[namespace] should return at least one CRQ"
+        matched = [
+            row
+            for row in filtered_items
+            if row.get("cluster_uuid") == target_row.get("cluster_uuid")
+            and row.get("cluster_quota_name") == target_row.get("cluster_quota_name")
+        ]
+        assert matched, (
+            f"Expected CRQ {target_row.get('cluster_quota_name')} for namespace {target_ns}"
+        )
+        for row in filtered_items:
+            assert target_ns in (row.get("namespaces") or [])
 
     def test_cluster_quota_filter_by_cluster_quota_name(
         self,
@@ -344,6 +393,12 @@ class TestClusterQuotaRecommendationsE2E:
         assert body.get("risk_level") in VALID_CLUSTER_QUOTA_RISK_LEVELS
         assert "history" in body
         assert isinstance(body["history"], list)
+        assert len(body["history"]) > 0, "history should contain snapshots after recommendation runs"
+        entry = body["history"][0]
+        assert entry.get("recorded_at")
+        assert entry.get("resource")
+        assert entry.get("recommendation_type") in VALID_CLUSTER_QUOTA_RECOMMENDATION_TYPES
+        assert entry.get("risk_level") in VALID_CLUSTER_QUOTA_RISK_LEVELS
 
     def test_cluster_quota_detail_not_found(
         self,
