@@ -1,8 +1,11 @@
 """
-E2E: assert VM notification codes 37–42 on dedicated NISE scenarios.
+E2E: VM notification codes 37–57 — direct assertions and cross-references.
 
-Run:
+Run direct matrix ingest (codes 37–42):
   NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_notifications_matrix
+
+Run full catalog (includes cross-reference skips):
+  NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k TestVMNotificationMatrix
 """
 
 from __future__ import annotations
@@ -42,12 +45,31 @@ _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_vm_notifications.yml"
 _NOTIF_NAMESPACE = "vm-notifications"
 
+# VM notification codes 37–57 (see ros-ocp-backend docs/architecture/notification-codes.md)
 NOTIF_DISK_GROWING_HYPERVISOR = 37
 NOTIF_NO_GUEST_AGENT = 38
 NOTIF_HIGH_IO = 39
 NOTIF_DISK_FILLING_GUEST = 40
 NOTIF_INSTANCE_TYPE_REC = 41
 NOTIF_DISK_CRITICAL = 42
+NOTIF_ABANDONED = 43
+NOTIF_GUEST_AGENT_INTERRUPTED = 44
+NOTIF_INSUFFICIENT_DATA = 45
+NOTIF_UNKNOWN_OS = 46
+NOTIF_WINDOWS_UPDATE_SPIKE = 47
+NOTIF_CRASH_LOOP = 48
+NOTIF_DOWNSIZE_HELD = 49
+NOTIF_GPU_IDLE = 50
+NOTIF_GPU_UNDERUTIL = 51
+NOTIF_GPU_MEMORY_SAT = 52
+NOTIF_GPU_COMPUTE_SAT = 53
+NOTIF_MULTI_GPU_IDLE = 54
+NOTIF_NETWORK_SATURATED = 55
+NOTIF_VGPU_PROFILE = 56
+NOTIF_TIMESLICE_UNSAFE_FB = 57
+
+VM_NOTIF_CODES_DIRECT = range(37, 43)
+VM_NOTIF_CODES_ALL = range(37, 58)
 
 # VM names from tests/data/nise_templates/ocp_report_vm_notifications.yml
 VM_NOTIF_EXPECTATIONS: dict[tuple[str, str], set[int]] = {
@@ -57,6 +79,25 @@ VM_NOTIF_EXPECTATIONS: dict[tuple[str, str], set[int]] = {
     ("disk-filling-guest-01", _NOTIF_NAMESPACE): {NOTIF_DISK_FILLING_GUEST},
     ("instance-type-rec-01", _NOTIF_NAMESPACE): {NOTIF_INSTANCE_TYPE_REC},
     ("disk-critical-01", _NOTIF_NAMESPACE): {NOTIF_DISK_CRITICAL},
+}
+
+# Cross-references for codes not asserted in this file's NISE fixture
+VM_NOTIF_E2E_CROSS_REF: dict[int, str] = {
+    NOTIF_ABANDONED: "test_vm_recommendations_flow.py::TestVMRecommendationsExtendedFlow::test_vm_abandoned_notification_43",
+    NOTIF_GUEST_AGENT_INTERRUPTED: "ros-ocp-backend unit: vm_recommender_test.go (guest agent interrupted); IQE: test_vm_notification_code_44_agent_interrupted",
+    NOTIF_INSUFFICIENT_DATA: "ros-ocp-backend unit: vm_recommender_test.go (insufficient data); IQE: test_vm_notification_code_45_insufficient_data",
+    NOTIF_UNKNOWN_OS: "test_vm_enhancements_flow.py::TestVMEnhancementsExtendedFlow::test_unknown_os_notification",
+    NOTIF_WINDOWS_UPDATE_SPIKE: "test_vm_enhancements_flow.py::TestVMEnhancementsExtendedFlow::test_windows_update_spike_notification",
+    NOTIF_CRASH_LOOP: "test_vm_enhancements_flow.py::TestVMEnhancementsExtendedFlow::test_crash_loop_notification_present",
+    NOTIF_DOWNSIZE_HELD: "test_vm_enhancements_flow.py::TestVMEnhancementsExtendedFlow::test_downsize_held_notification",
+    NOTIF_GPU_IDLE: "test_vm_gpu_flow.py::TestVMGPUExtendedFlow::test_vm_gpu_idle_classification_and_notification",
+    NOTIF_GPU_UNDERUTIL: "test_vm_gpu_flow.py::TestVMGPUExtendedFlow::test_vm_gpu_underutil_notification_51",
+    NOTIF_GPU_MEMORY_SAT: "test_vm_gpu_flow.py::TestVMGPUExtendedFlow::test_vm_gpu_memory_saturated_notification_52",
+    NOTIF_GPU_COMPUTE_SAT: "test_vm_gpu_flow.py::TestVMGPUExtendedFlow::test_vm_gpu_compute_saturated_notification_53",
+    NOTIF_MULTI_GPU_IDLE: "test_vm_mvp_promotions_flow.py::test_04_multi_gpu_partial_idle",
+    NOTIF_NETWORK_SATURATED: "test_vm_network_flow.py::TestVMNetworkExtendedFlow::test_network_notification_code_55",
+    NOTIF_VGPU_PROFILE: "test_vm_gpu_timeslicing_flow.py::TestVMGPUTimesliceExtendedFlow::test_notification_code_56_vgpu_profile",
+    NOTIF_TIMESLICE_UNSAFE_FB: "test_vm_gpu_timeslicing_flow.py::TestVMGPUTimesliceExtendedFlow::test_notification_code_57_fb_pressure",
 }
 
 
@@ -120,8 +161,13 @@ def _vm_notification_codes(item: dict[str, Any]) -> set[int]:
 @pytest.mark.extended
 @pytest.mark.slow
 @pytest.mark.timeout(1200)
-class TestVMNotificationsMatrixFlow:
-    """Ingest notification-scenario NISE data and assert codes 37–42 per VM."""
+class TestVMNotificationMatrix:
+    """Comprehensive notification code coverage for VM recommendations.
+
+    Codes 37–42: Tested directly via ocp_report_vm_notifications.yml ingest.
+    Codes 43–49: Cross-referenced to dedicated extended E2E flows (or unit/IQE).
+    Codes 50–57: GPU/network/time-slicing — cross-referenced to dedicated test files.
+    """
 
     @pytest.fixture(scope="class")
     def vm_notif_cluster_id(self) -> str:
@@ -223,6 +269,11 @@ class TestVMNotificationsMatrixFlow:
             pytest.fail("Could not obtain JWT for VM notification E2E")
         return VMNotificationsFlowContext(cluster_id=vm_notif_cluster_id, auth=auth)
 
+    def test_notification_catalog_covers_codes_37_through_57(self):
+        """Registry must list every VM notification code (direct or cross-ref)."""
+        covered = set(VM_NOTIF_CODES_DIRECT) | set(VM_NOTIF_E2E_CROSS_REF)
+        assert covered == set(VM_NOTIF_CODES_ALL)
+
     def test_notification_codes_37_through_42(
         self,
         ros_api_url: str,
@@ -288,3 +339,63 @@ class TestVMNotificationsMatrixFlow:
         assert codes == {expected_code}, (
             f"VM {vm_name}/{_NOTIF_NAMESPACE}: expected only code {expected_code}, got {sorted(codes)}"
         )
+
+    def test_notification_code_43_abandoned(self):
+        """Abandoned VM (zero usage). See test_vm_recommendations_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_ABANDONED])
+
+    def test_notification_code_44_guest_agent_interrupted(self):
+        """Guest agent removed mid-window. See unit tests and IQE."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_GUEST_AGENT_INTERRUPTED])
+
+    def test_notification_code_45_insufficient_data(self):
+        """Low confidence / short history. See unit tests and IQE."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_INSUFFICIENT_DATA])
+
+    def test_notification_code_46_unknown_os(self):
+        """Empty guest_os uses Linux thresholds. See test_vm_enhancements_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_UNKNOWN_OS])
+
+    def test_notification_code_47_windows_update_spike(self):
+        """Windows P99≫P95 spread. See test_vm_enhancements_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_WINDOWS_UPDATE_SPIKE])
+
+    def test_notification_code_48_crash_loop(self):
+        """Elevated restart_count in window. See test_vm_enhancements_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_CRASH_LOOP])
+
+    def test_notification_code_49_downsize_held(self):
+        """Performance engine stability hold. See test_vm_enhancements_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_DOWNSIZE_HELD])
+
+    def test_notification_code_50_gpu_idle(self):
+        """Idle GPU classification. See test_vm_gpu_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_GPU_IDLE])
+
+    def test_notification_code_51_gpu_underutil(self):
+        """Underutilized GPU. See test_vm_gpu_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_GPU_UNDERUTIL])
+
+    def test_notification_code_52_gpu_memory_saturated(self):
+        """Memory-saturated GPU. See test_vm_gpu_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_GPU_MEMORY_SAT])
+
+    def test_notification_code_53_gpu_compute_saturated(self):
+        """Compute-saturated GPU. See test_vm_gpu_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_GPU_COMPUTE_SAT])
+
+    def test_notification_code_54_multi_gpu_mixed_idle(self):
+        """Some GPUs idle, others active. See test_vm_mvp_promotions_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_MULTI_GPU_IDLE])
+
+    def test_notification_code_55_network_saturated(self):
+        """Network-bound n1 recommendation. See test_vm_network_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_NETWORK_SATURATED])
+
+    def test_notification_code_56_vgpu_profile(self):
+        """vGPU profile recommended. See test_vm_gpu_timeslicing_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VGPU_PROFILE])
+
+    def test_notification_code_57_timeslice_unsafe_fb(self):
+        """Time-slicing unsafe due to frame-buffer pressure. See test_vm_gpu_timeslicing_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_TIMESLICE_UNSAFE_FB])
