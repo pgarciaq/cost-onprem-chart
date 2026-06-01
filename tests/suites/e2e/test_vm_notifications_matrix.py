@@ -67,9 +67,11 @@ NOTIF_MULTI_GPU_IDLE = 54
 NOTIF_NETWORK_SATURATED = 55
 NOTIF_VGPU_PROFILE = 56
 NOTIF_TIMESLICE_UNSAFE_FB = 57
+NOTIF_VM_IO_SEQUENTIAL = 58
+NOTIF_VM_IO_RANDOM = 59
 
 VM_NOTIF_CODES_DIRECT = range(37, 43)
-VM_NOTIF_CODES_ALL = range(37, 58)
+VM_NOTIF_CODES_ALL = range(37, 60)
 
 # VM names from tests/data/nise_templates/ocp_report_vm_notifications.yml
 VM_NOTIF_EXPECTATIONS: dict[tuple[str, str], set[int]] = {
@@ -98,6 +100,8 @@ VM_NOTIF_E2E_CROSS_REF: dict[int, str] = {
     NOTIF_NETWORK_SATURATED: "test_vm_network_flow.py::TestVMNetworkExtendedFlow::test_network_notification_code_55",
     NOTIF_VGPU_PROFILE: "test_vm_gpu_timeslicing_flow.py::TestVMGPUTimesliceExtendedFlow::test_notification_code_56_vgpu_profile",
     NOTIF_TIMESLICE_UNSAFE_FB: "test_vm_gpu_timeslicing_flow.py::TestVMGPUTimesliceExtendedFlow::test_notification_code_57_fb_pressure",
+    NOTIF_VM_IO_SEQUENTIAL: "test_vm_io_profiling_flow.py::TestVMIOProfilingExtendedFlow::test_notification_code_58_sequential",
+    NOTIF_VM_IO_RANDOM: "test_vm_io_profiling_flow.py::TestVMIOProfilingExtendedFlow::test_notification_code_59_random",
 }
 
 
@@ -167,6 +171,7 @@ class TestVMNotificationMatrix:
     Codes 37–42: Tested directly via ocp_report_vm_notifications.yml ingest.
     Codes 43–49: Cross-referenced to dedicated extended E2E flows (or unit/IQE).
     Codes 50–57: GPU/network/time-slicing — cross-referenced to dedicated test files.
+    Codes 58–59: Disk I/O pattern — cross-referenced to test_vm_io_profiling_flow.py.
     """
 
     @pytest.fixture(scope="class")
@@ -269,7 +274,7 @@ class TestVMNotificationMatrix:
             pytest.fail("Could not obtain JWT for VM notification E2E")
         return VMNotificationsFlowContext(cluster_id=vm_notif_cluster_id, auth=auth)
 
-    def test_notification_catalog_covers_codes_37_through_57(self):
+    def test_notification_catalog_covers_codes_37_through_59(self):
         """Registry must list every VM notification code (direct or cross-ref)."""
         covered = set(VM_NOTIF_CODES_DIRECT) | set(VM_NOTIF_E2E_CROSS_REF)
         assert covered == set(VM_NOTIF_CODES_ALL)
@@ -399,3 +404,11 @@ class TestVMNotificationMatrix:
     def test_notification_code_57_timeslice_unsafe_fb(self):
         """Time-slicing unsafe due to frame-buffer pressure. See test_vm_gpu_timeslicing_flow.py."""
         pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_TIMESLICE_UNSAFE_FB])
+
+    def test_notification_code_58_io_sequential(self):
+        """Sequential disk I/O pattern. See test_vm_io_profiling_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_IO_SEQUENTIAL])
+
+    def test_notification_code_59_io_random(self):
+        """Random disk I/O pattern. See test_vm_io_profiling_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_IO_RANDOM])

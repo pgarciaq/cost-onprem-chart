@@ -1,0 +1,36 @@
+---
+# OCP VM ROS data for disk I/O pattern classification E2E (notifications 58–59).
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_io_profiling.yml", include_ros=True)
+#
+# NISE maps sequential_io / random_io to fixed per-interval disk metrics:
+#   sequential-io-vm-01: ~800/400 IOPS, ~105 MiB/s read — avg I/O size >= 64 KiB → sequential
+#   random-io-vm-01: ~2500/1500 IOPS, ~10 MiB/s read — avg I/O size < 16 KiB → random
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        - vm_name: sequential-io-vm-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          sequential_io: true
+          fixed_usage:
+            cpu_pct: 0.35
+            mem_pct: 0.55
+        - vm_name: random-io-vm-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          random_io: true
+          fixed_usage:
+            cpu_pct: 0.35
+            mem_pct: 0.55
