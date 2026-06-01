@@ -251,3 +251,40 @@ class TestVMNotificationsMatrixFlow:
                 f"VM {vm_name}/{namespace}: expected notification codes {sorted(expected_codes)}, "
                 f"got {sorted(codes)}"
             )
+
+    @pytest.mark.parametrize(
+        "vm_name,expected_code",
+        [
+            ("instance-type-rec-01", NOTIF_INSTANCE_TYPE_REC),
+            ("disk-critical-01", NOTIF_DISK_CRITICAL),
+        ],
+    )
+    def test_notification_codes_41_and_42_isolated(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        vm_notif_context: VMNotificationsFlowContext,
+        vm_name: str,
+        expected_code: int,
+    ):
+        """Codes 41 and 42 must appear alone on their dedicated NISE VMs (no co-occurring alerts)."""
+        resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_notif_context.auth,
+            {
+                "filter[cluster]": vm_notif_context.cluster_id,
+                "filter[vm_name]": vm_name,
+                "filter[namespace]": _NOTIF_NAMESPACE,
+                "limit": 10,
+            },
+        )
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        row = _find_vm_row(rows, vm_name, _NOTIF_NAMESPACE)
+        assert row, f"Missing dedicated VM {vm_name}/{_NOTIF_NAMESPACE}"
+        codes = _vm_notification_codes(row)
+        assert codes == {expected_code}, (
+            f"VM {vm_name}/{_NOTIF_NAMESPACE}: expected only code {expected_code}, got {sorted(codes)}"
+        )
