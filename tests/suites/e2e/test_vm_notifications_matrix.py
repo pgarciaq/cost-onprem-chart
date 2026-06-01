@@ -135,15 +135,15 @@ class TestVMNotificationsMatrixFlow:
         vm_notif_cluster_id: str,
         ingress_url: str,
         ros_api_url: str,
-        http_session: requests.Session,
+        e2e_http_session: requests.Session,
     ) -> VMNotificationsFlowContext:
         if not ensure_nise_available():
             pytest.skip("NISE is not available for VM notification E2E")
 
-        probe_auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+        probe_auth = get_fresh_token(keycloak_config, cluster_config, e2e_http_session)
         if probe_auth:
             probe = _fetch_vm_list(
-                http_session, ros_api_url, probe_auth, {"limit": 1}
+                e2e_http_session, ros_api_url, probe_auth, {"limit": 1}
             )
             if probe.status_code == 404:
                 pytest.skip("VM recommendations plugin not enabled on cluster")
@@ -218,7 +218,7 @@ class TestVMNotificationsMatrixFlow:
         ):
             pytest.fail("vm_recommendations not populated after notification upload")
 
-        auth = obtain_jwt_token(keycloak_config, cluster_config, http_session)
+        auth = obtain_jwt_token(keycloak_config, cluster_config, e2e_http_session)
         if not auth:
             pytest.fail("Could not obtain JWT for VM notification E2E")
         return VMNotificationsFlowContext(cluster_id=vm_notif_cluster_id, auth=auth)

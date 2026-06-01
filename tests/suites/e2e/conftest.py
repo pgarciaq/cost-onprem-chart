@@ -13,6 +13,19 @@ from e2e_helpers import get_koku_api_url
 from utils import create_identity_header_custom, create_pod_session, create_rh_identity_header
 
 
+@pytest.fixture(scope="session")
+def e2e_http_session() -> requests.Session:
+    """HTTP session for class/module E2E fixtures.
+
+    Function-scoped ``http_session`` cannot be requested from wider-scoped
+    fixtures (ScopeMismatch). Use this fixture in class- or module-scoped setup.
+    """
+    session = requests.Session()
+    session.verify = False
+    yield session
+    session.close()
+
+
 @pytest.fixture(scope="module")
 def koku_api_url(cluster_config: ClusterConfig) -> str:
     """Get Koku API URL for E2E tests (unified deployment)."""

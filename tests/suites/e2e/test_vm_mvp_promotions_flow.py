@@ -62,9 +62,19 @@ class VMMVPPromotionsContext:
 
 
 @pytest.fixture(scope="module")
-def mvp_promotions_context(cluster_config) -> VMMVPPromotionsContext:
-    skip_if_vm_plugin_disabled(cluster_config)
+def mvp_promotions_context(
+    cluster_config,
+    keycloak_config,
+    ros_api_url: str,
+    e2e_http_session: requests.Session,
+) -> VMMVPPromotionsContext:
     ensure_nise_available()
+    probe_auth = get_fresh_token(keycloak_config, cluster_config, e2e_http_session)
+    if probe_auth:
+        probe = _fetch_vm_list(
+            e2e_http_session, ros_api_url, probe_auth, {"limit": 1}
+        )
+        skip_if_vm_plugin_disabled(probe)
     cluster_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=14)
@@ -122,7 +132,23 @@ def _find_vm(rows: list[dict[str, Any]], name: str, namespace: str) -> Optional[
 
 
 def _vm_detail(ctx: VMMVPPromotionsContext, vm_name: str, namespace: str) -> dict[str, Any]:
-    return _fetch_vm_detail(ctx.ros_api_url, ctx.auth, vm_name, namespace)
+    session = requests.Session()
+    session.verify = False
+    resp = _fetch_vm_detail(
+        session,
+        ctx.ros_api_url,
+        ctx.auth,
+        {
+            "cluster_uuid": ctx.cluster_id,
+            "vm_name": vm_name,
+            "namespace": namespace,
+            "term": "medium_term",
+            "engine": "cost",
+        },
+    )
+    skip_if_vm_plugin_disabled(resp)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
 
 @pytest.mark.extended
@@ -160,7 +186,17 @@ def test_03_time_slicing_recommendation(mvp_promotions_context, cluster_config):
 def test_04_multi_gpu_partial_idle(mvp_promotions_context, cluster_config):
     db_pod = get_pod_by_label(cluster_config.namespace, "database")
     assert _wait_for_vm_recs(cluster_config, db_pod, mvp_promotions_context.cluster_id)
-    rows = _fetch_vm_list(mvp_promotions_context.ros_api_url, mvp_promotions_context.auth)
+    session = requests.Session()
+    session.verify = False
+    list_resp = _fetch_vm_list(
+        session,
+        mvp_promotions_context.ros_api_url,
+        mvp_promotions_context.auth,
+        {"cluster": mvp_promotions_context.cluster_id, "limit": 100},
+    )
+    skip_if_vm_plugin_disabled(list_resp)
+    assert list_resp.status_code == 200, list_resp.text
+    rows = list_resp.json().get("data") or []
     row = _find_vm(rows, *VM_MULTI_GPU)
     assert row is not None
     codes = {int(n.get("code", n)) for n in (row.get("notifications") or []) if n}

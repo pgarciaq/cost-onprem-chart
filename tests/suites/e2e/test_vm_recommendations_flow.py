@@ -179,15 +179,15 @@ class TestVMRecommendationsExtendedFlow:
         vm_e2e_cluster_id: str,
         ingress_url: str,
         ros_api_url: str,
-        http_session: requests.Session,
+        e2e_http_session: requests.Session,
     ) -> VMFlowContext:
         if not ensure_nise_available():
             pytest.skip("NISE is not available for VM E2E data generation")
 
-        probe_auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+        probe_auth = get_fresh_token(keycloak_config, cluster_config, e2e_http_session)
         if probe_auth:
             probe = _fetch_vm_list(
-                http_session, ros_api_url, probe_auth, {"limit": 1}
+                e2e_http_session, ros_api_url, probe_auth, {"limit": 1}
             )
             if probe.status_code == 404:
                 pytest.skip("VM recommendations plugin not enabled on cluster")
@@ -276,7 +276,7 @@ class TestVMRecommendationsExtendedFlow:
                 "ROS processor may need more ingest cycles for 15-min VM samples"
             )
 
-        auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+        auth = get_fresh_token(keycloak_config, cluster_config, e2e_http_session)
         if not auth:
             pytest.skip("Could not obtain JWT after VM upload")
 
