@@ -42,6 +42,7 @@
 #   HELM_RELEASE_NAME      Helm release name (default: cost-onprem)
 #   KEYCLOAK_NAMESPACE     Keycloak namespace (default: keycloak)
 #   PYTHON                 Python interpreter (default: python3)
+#   NISE_PATH              Local koku-nise repo (editable install; includes VM generators)
 #
 # Examples:
 #   ./run-pytest.sh                         # Run all tests (including UI)
@@ -168,6 +169,40 @@ check_prerequisites() {
     log_success "Prerequisites check passed"
 }
 
+# Resolve local koku-nise checkout (PyPI release lacks OCPVirtualMachineGenerator).
+# Priority: NISE_PATH → ../nise sibling → ~/dev/koku/nise when present.
+resolve_nise_repo_path() {
+    if [[ -n "${NISE_PATH:-}" && -d "$NISE_PATH" && -f "$NISE_PATH/pyproject.toml" ]]; then
+        echo "$(cd "$NISE_PATH" && pwd)"
+        return 0
+    fi
+
+    local sibling="${PROJECT_ROOT}/../nise"
+    if [[ -f "${sibling}/pyproject.toml" ]]; then
+        echo "$(cd "$sibling" && pwd)"
+        return 0
+    fi
+
+    local dev_default="/home/pgarciaq/dev/koku/nise"
+    if [[ -f "${dev_default}/pyproject.toml" ]]; then
+        echo "$dev_default"
+        return 0
+    fi
+
+    return 1
+}
+
+install_nise() {
+    local local_nise
+    if local_nise=$(resolve_nise_repo_path); then
+        log_info "Installing koku-nise from ${local_nise} (editable; OCPVirtualMachineGenerator)..."
+        pip install --quiet -e "$local_nise"
+    else
+        log_info "Installing koku-nise from PyPI (no local checkout found)..."
+        pip install --quiet "koku-nise>=4.0.0"
+    fi
+}
+
 setup_venv() {
     if [[ "$USE_VENV" != "true" ]]; then
         log_info "Skipping virtual environment setup (--no-venv)"
@@ -188,9 +223,11 @@ setup_venv() {
     # Upgrade pip
     pip install --quiet --upgrade pip
 
-    # Install dependencies
+    # Install dependencies (koku-nise may be overridden by local editable install below)
     log_info "Installing test dependencies..."
     pip install --quiet -r "$TESTS_DIR/requirements.txt"
+
+    install_nise
 
     log_success "Virtual environment ready"
 }
