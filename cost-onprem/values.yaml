@@ -137,13 +137,34 @@ ros:
   # Only keys listed here are injected into ros-api and ros-processor pods.
   # When an env var is set it locks that field for all tenants via the Settings API.
   # Leave empty to use compiled defaults and allow per-org Settings API overrides.
-  # Example keys and compiled defaults (see docs/architecture/configurability.md):
+  # Example keys and compiled defaults (see ros-ocp-backend docs/architecture/configurability.md):
   #   ROS_CONTAINER_CPU_COST_PERCENTILE: "0.60"
   #   ROS_CONTAINER_CPU_PERF_PERCENTILE: "0.98"
   #   ROS_NODE_COST_TARGET_UTILIZATION: "0.80"
-  #   ROS_GPU_TIMESLICING_MIN_REPLICAS: "2"
   #   ROS_PVC_OVERSIZED_THRESHOLD: "0.20"
   #   ROS_SNAPSHOT_INVENTORY_FRESH_HOURS: "6"
+  #
+  # GPU classification and time-slicing thresholds (ros-ocp-backend internal/config/config.go):
+  #   ROS_GPU_IDLE_THRESHOLD: "0.02"
+  #   ROS_GPU_UNDERUTILIZED_SM_THRESHOLD: "0.25"
+  #   ROS_GPU_UNDERUTILIZED_TENSOR_THRESHOLD: "0.15"
+  #   ROS_GPU_MEMBOUND_DRAM_THRESHOLD: "0.60"
+  #   ROS_GPU_MEMBOUND_TENSOR_THRESHOLD: "0.15"
+  #   ROS_GPU_FB_HEADROOM_FACTOR: "1.20"
+  #   ROS_GPU_COMPUTE_BOUND_DRAM_THRESHOLD: "0.30"
+  #   ROS_GPU_MIG_FB_PERCENTILE: "0.98"
+  #   ROS_GPU_CONFIDENCE_DAYS_TIER1: "3"
+  #   ROS_GPU_CONFIDENCE_DAYS_TIER2: "7"
+  #   ROS_GPU_CONFIDENCE_DAYS_TIER3: "14"
+  #   ROS_GPU_SPIKE_RATIO_THRESHOLD: "5.0"
+  #   ROS_GPU_SPIKE_CONFIDENCE_PENALTY: "0.70"
+  #   ROS_GPU_NO_PROFILING_CONFIDENCE_FACTOR: "0.50"
+  #   ROS_GPU_TIMESLICING_MAJORITY_THRESHOLD: "0.50"
+  #   ROS_GPU_TIMESLICING_MIN_REPLICAS: "2"
+  #   ROS_GPU_TIMESLICING_MAX_REPLICAS: "8"
+  #   ROS_GPU_TIMESLICING_BASE_PENALTY: "0.70"
+  #   ROS_GPU_TIMESLICING_IMPACTED_WEIGHT: "0.30"
+  #   ROS_GPU_NODE_FRESHNESS_DAYS: "7"
   thresholdEnv: {}
 
   # Recommendation Poller Component - Polls Kruize for recommendations
