@@ -49,6 +49,14 @@ def _skip_if_plugin_disabled(resp: requests.Response) -> None:
         )
 
 
+def _list_row_keys(body: dict) -> set[tuple[str, str]]:
+    return {
+        (row["cluster_uuid"], row["cluster_quota_name"])
+        for row in body.get("data", [])
+        if row.get("cluster_uuid") and row.get("cluster_quota_name")
+    }
+
+
 @pytest.fixture
 def cluster_quota_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -218,6 +226,80 @@ class TestClusterQuotaRecommendationsE2E:
         assert filtered.status_code == 200, filtered.text
         for item in filtered.json().get("data") or []:
             assert item.get("cluster_quota_name") == crq_name
+
+    def test_cluster_quota_filter_crq_alias_matches_cluster_quota_name(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 5}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        crq_name = items[0].get("cluster_quota_name")
+        assert crq_name, "row must include cluster_quota_name for alias test"
+
+        by_name = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[cluster_quota_name]": crq_name, "limit": 50},
+        )
+        by_crq = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[crq]": crq_name, "limit": 50},
+        )
+        assert by_name.status_code == 200, by_name.text
+        assert by_crq.status_code == 200, by_crq.text
+        assert _list_row_keys(by_name.json()) == _list_row_keys(by_crq.json())
+
+    def test_cluster_quota_filter_project_alias_matches_namespace(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 20}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        target_ns = None
+        for item in items:
+            namespaces = item.get("namespaces") or []
+            if namespaces:
+                target_ns = namespaces[0]
+                break
+        if not target_ns:
+            pytest.skip("No cluster quota rows with namespaces membership populated")
+
+        by_namespace = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[namespace]": target_ns, "limit": 50},
+        )
+        by_project = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[project]": target_ns, "limit": 50},
+        )
+        assert by_namespace.status_code == 200, by_namespace.text
+        assert by_project.status_code == 200, by_project.text
+        assert _list_row_keys(by_namespace.json()) == _list_row_keys(by_project.json())
 
     def test_cluster_quota_savings_when_present(
         self,
