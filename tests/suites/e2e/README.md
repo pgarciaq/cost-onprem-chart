@@ -99,9 +99,23 @@ pytest tests/suites/e2e/test_scenarios.py -v -m scenario
 ./scripts/run-pytest.sh -- -m "e2e and smoke"
 ```
 
+## VM MVP promotions flow (`test_vm_mvp_promotions_flow.py`)
+
+Extended E2E for phase-11 VM promotion scenarios: adaptive CPU margin (`variable-cpu-vm`),
+`current_instance_type` on u1-shaped VMs, GPU time-slicing and MIG profile recommendations,
+multi-GPU notification **54**, recommendation history API, and per-device `gpu_devices` detail
+after `ocp_ros_vm_gpu_device` ingest. Uses NISE template `ocp_report_vm_mvp_promotions.yml`.
+
+```bash
+NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_mvp_promotions_flow
+```
+
+---
+
 ## Related Files
 
 - `test_complete_flow.py` - Full E2E data flow tests (source → upload → processing → recommendations)
+- `test_vm_mvp_promotions_flow.py` - VM MVP promotion and multi-GPU device detail E2E
 - `test_smoke.py` - Quick smoke tests for E2E validation
 - `conftest.py` - Shared fixtures for E2E tests
 - `../../e2e_helpers.py` - Centralized E2E helpers (NISE config, source registration, upload utilities)
