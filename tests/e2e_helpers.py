@@ -168,16 +168,28 @@ def is_nise_available() -> bool:
 
 
 def _local_nise_repo_path() -> Optional[str]:
-    """Sibling nise checkout (VM generators require a recent koku-nise)."""
+    """Local koku-nise checkout (VM generators require dev nise, not older PyPI)."""
     env_path = os.environ.get("NISE_PATH")
     if env_path and os.path.isdir(env_path):
-        return env_path
-    sibling = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "nise")
-    )
-    if os.path.isfile(os.path.join(sibling, "pyproject.toml")):
-        return sibling
+        return os.path.abspath(env_path)
+    for candidate in (
+        os.path.join(os.path.dirname(__file__), "..", "..", "nise"),
+        "/home/pgarciaq/dev/koku/nise",
+    ):
+        abspath = os.path.abspath(candidate)
+        if os.path.isfile(os.path.join(abspath, "pyproject.toml")):
+            return abspath
     return None
+
+
+def _nise_has_vm_generator() -> bool:
+    """True when installed nise exposes OCPVirtualMachineGenerator (VM E2E templates)."""
+    try:
+        from nise.generators.ocp.ocp_vm_ros_generator import OCPVirtualMachineGenerator  # noqa: F401
+
+        return True
+    except (ImportError, AttributeError):
+        return False
 
 
 def install_nise() -> bool:
@@ -205,6 +217,10 @@ def install_nise() -> bool:
 
 def ensure_nise_available() -> bool:
     """Ensure NISE is available, installing if necessary."""
+    local_nise = _local_nise_repo_path()
+    if local_nise and not _nise_has_vm_generator():
+        if not install_nise():
+            return False
     if is_nise_available():
         return True
     return install_nise()
