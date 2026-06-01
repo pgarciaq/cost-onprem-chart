@@ -43,6 +43,29 @@ def _put_vm_settings(
     )
 
 
+def _vm_terms_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/settings/vm/terms"
+    )
+
+
+def _delete_vm_settings(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+) -> requests.Response:
+    return session.delete(_vm_settings_url(ros_api_url), headers=auth, timeout=60)
+
+
+def _delete_vm_terms(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+) -> requests.Response:
+    return session.delete(_vm_terms_url(ros_api_url), headers=auth, timeout=60)
+
+
 @pytest.fixture
 def vm_settings_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -108,3 +131,78 @@ class TestVMSettingsE2E:
         assert put_resp.status_code == 200, put_resp.text
         updated = put_resp.json()
         assert updated["thresholds"]["cpu_percentile_cost"] == new_cost
+
+    def test_vm_settings_delete_resets(
+        self,
+        ros_api_url: str,
+        vm_settings_auth: dict,
+        http_session: requests.Session,
+    ):
+        get_resp = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        skip_if_vm_plugin_disabled(get_resp)
+        assert get_resp.status_code == 200, get_resp.text
+        baseline = get_resp.json()
+        locked = set(baseline.get("locked_fields") or [])
+        if "disk.projection_window_days" in locked:
+            pytest.skip("VM disk settings are env-locked on this cluster")
+
+        custom_window = 21
+        if baseline.get("disk", {}).get("projection_window_days") == custom_window:
+            custom_window = 22
+
+        put_resp = _put_vm_settings(
+            http_session,
+            ros_api_url,
+            vm_settings_auth,
+            {"disk": {"projection_window_days": custom_window}},
+        )
+        if put_resp.status_code == 403:
+            pytest.skip("VM settings PUT rejected (env-locked or read-only)")
+        assert put_resp.status_code == 200, put_resp.text
+        assert put_resp.json()["disk"]["projection_window_days"] == custom_window
+
+        del_resp = _delete_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        assert del_resp.status_code in (200, 204), del_resp.text
+
+        restored = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["disk"]["projection_window_days"] == baseline["disk"][
+            "projection_window_days"
+        ]
+
+    def test_vm_terms_delete_resets(
+        self,
+        ros_api_url: str,
+        vm_settings_auth: dict,
+        http_session: requests.Session,
+    ):
+        terms_url = _vm_terms_url(ros_api_url)
+        get_resp = http_session.get(terms_url, headers=vm_settings_auth, timeout=30)
+        skip_if_vm_plugin_disabled(get_resp)
+        assert get_resp.status_code == 200, get_resp.text
+        baseline = get_resp.json()
+        if any(t.get("locked") for t in baseline.get("terms") or []):
+            pytest.skip("VM terms are locked on this cluster")
+
+        put_resp = http_session.put(
+            terms_url,
+            headers={**vm_settings_auth, "Content-Type": "application/json"},
+            json={"terms": [{"name": "short_term", "window_days": 11}]},
+            timeout=60,
+        )
+        if put_resp.status_code == 403:
+            pytest.skip("VM terms PUT rejected (env-locked or read-only)")
+        assert put_resp.status_code == 200, put_resp.text
+
+        del_resp = _delete_vm_terms(http_session, ros_api_url, vm_settings_auth)
+        assert del_resp.status_code in (200, 204), del_resp.text
+
+        restored = http_session.get(terms_url, headers=vm_settings_auth, timeout=30)
+        assert restored.status_code == 200, restored.text
+        short_baseline = next(
+            t for t in baseline["terms"] if t["name"] == "short_term"
+        )
+        short_restored = next(
+            t for t in restored.json()["terms"] if t["name"] == "short_term"
+        )
+        assert short_restored["window_days"] == short_baseline["window_days"]
