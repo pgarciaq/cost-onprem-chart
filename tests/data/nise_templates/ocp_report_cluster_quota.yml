@@ -17,6 +17,13 @@ generators:
           cpu_limit_used: 36
           memory_request_used_gig: 45
           memory_limit_used_gig: 90
+          storage_request_hard_gig: 500
+          storage_request_used_gig: 420
+          pods_hard: 200
+          pods_used: 175
+          object_count_hard: 0
+          object_count_used: 0
+          namespaces: crq-e2e-ns
         - name: e2e-crq-platform
           cpu_request_hard: 30
           cpu_limit_hard: 60
@@ -24,6 +31,13 @@ generators:
           memory_limit_hard_gig: 128
           cpu_request_used: 27
           memory_request_used_gig: 58
+          storage_request_hard_gig: 1000
+          storage_request_used_gig: 800
+          pods_hard: 500
+          pods_used: 410
+          object_count_hard: 0
+          object_count_used: 0
+          namespaces: crq-e2e-ns,openshift-monitoring
       nodes:
         - node:
           node_name: crq-worker-1
