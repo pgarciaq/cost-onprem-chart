@@ -249,3 +249,57 @@ class TestVMSettingsE2E:
             t for t in restored.json()["terms"] if t["name"] == "short_term"
         )
         assert short_restored["window_days"] == short_baseline["window_days"]
+
+    def test_vm_gpu_classification_settings(
+        self,
+        ros_api_url: str,
+        vm_settings_auth: dict,
+        http_session: requests.Session,
+    ):
+        """GET/PUT/DELETE for gpu classification thresholds in /settings/vm."""
+        resp = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        gpu = resp.json().get("gpu") or {}
+        assert gpu.get("idle_threshold_bp") is not None
+        assert gpu.get("underutil_threshold_bp") is not None
+        assert gpu.get("fb_saturation_mib") is not None
+        assert gpu.get("compute_saturation_threshold_bp") is not None
+
+        baseline = resp.json()
+        locked = set(baseline.get("locked_fields") or [])
+        if "gpu.idle_threshold_bp" in locked:
+            pytest.skip("gpu.idle_threshold_bp is env-locked on this cluster")
+
+        custom_idle = 1200
+        if baseline.get("gpu", {}).get("idle_threshold_bp") == custom_idle:
+            custom_idle = 1300
+
+        put_resp = _put_vm_settings(
+            http_session,
+            ros_api_url,
+            vm_settings_auth,
+            {
+                "gpu": {
+                    **baseline.get("gpu", {}),
+                    "idle_threshold_bp": custom_idle,
+                }
+            },
+        )
+        if put_resp.status_code == 403:
+            pytest.skip("VM settings PUT rejected (env-locked or read-only)")
+        assert put_resp.status_code == 200, put_resp.text
+        assert put_resp.json()["gpu"]["idle_threshold_bp"] == custom_idle
+
+        verify = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        assert verify.status_code == 200, verify.text
+        assert verify.json()["gpu"]["idle_threshold_bp"] == custom_idle
+
+        del_resp = _delete_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        assert del_resp.status_code in (200, 204), del_resp.text
+
+        restored = _fetch_vm_settings(http_session, ros_api_url, vm_settings_auth)
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["gpu"]["idle_threshold_bp"] == baseline["gpu"][
+            "idle_threshold_bp"
+        ]
