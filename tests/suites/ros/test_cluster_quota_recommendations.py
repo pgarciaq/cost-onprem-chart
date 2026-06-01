@@ -255,3 +255,114 @@ class TestClusterQuotaRecommendationsE2E:
             (i["cluster_uuid"], i["cluster_quota_name"]) for i in second.json()["data"]
         }
         assert page1_keys.isdisjoint(page2_keys)
+
+    def test_cluster_quota_order_by_cluster_quota_name(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"limit": 20, "order_by": "cluster_quota_name", "order_how": "asc"},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+        names = [i.get("cluster_quota_name") for i in items]
+        assert names == sorted(names)
+
+    def test_cluster_quota_order_by_utilization_desc(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"limit": 20, "order_by": "utilization", "order_how": "desc"},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if len(items) < 2:
+            pytest.skip("Need multiple cluster quota rows for order_by test")
+
+        def max_util(row: dict) -> int:
+            util = row.get("utilization") or {}
+            vals = [
+                util.get("cpu_request_percent"),
+                util.get("memory_request_percent"),
+                util.get("storage_request_percent"),
+                util.get("pods_percent"),
+            ]
+            return max((v for v in vals if v is not None), default=0)
+
+        utils = [max_util(i) for i in items]
+        assert utils == sorted(utils, reverse=True)
+
+    def test_cluster_quota_detail_endpoint(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 5}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        row = items[0]
+        cluster_uuid = row["cluster_uuid"]
+        crq_name = row["cluster_quota_name"]
+
+        detail_url = ros_api_url.rstrip("/").replace(
+            "/recommendations/openshift/cluster-quota",
+            "/recommendations/openshift/cluster-quota/detail",
+        )
+        detail = http_session.get(
+            detail_url,
+            headers=cluster_quota_auth,
+            params={"cluster_uuid": cluster_uuid, "cluster_quota_name": crq_name},
+            timeout=60,
+        )
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert body.get("cluster_uuid") == cluster_uuid
+        assert body.get("cluster_quota_name") == crq_name
+        assert body.get("recommendation_type") in VALID_CLUSTER_QUOTA_RECOMMENDATION_TYPES
+        assert body.get("risk_level") in VALID_CLUSTER_QUOTA_RISK_LEVELS
+        assert "history" in body
+        assert isinstance(body["history"], list)
+
+    def test_cluster_quota_detail_not_found(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        detail_url = ros_api_url.rstrip("/").replace(
+            "/recommendations/openshift/cluster-quota",
+            "/recommendations/openshift/cluster-quota/detail",
+        )
+        detail = http_session.get(
+            detail_url,
+            headers=cluster_quota_auth,
+            params={
+                "cluster_uuid": "00000000-0000-0000-0000-000000000099",
+                "cluster_quota_name": "nonexistent-crq-name",
+            },
+            timeout=60,
+        )
+        _skip_if_plugin_disabled(detail)
+        assert detail.status_code == 404
