@@ -52,6 +52,7 @@ _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_vm.yml"
 
 # VM names/namespaces from tests/data/nise_templates/ocp_report_vm.yml
+VM_DUAL_ENGINE = ("web-server-linux-01", "production")
 VM_WITH_GUEST_AGENT = {
     "web-server-linux-01": "production",
     "db-server-windows-01": "production",
@@ -405,6 +406,81 @@ class TestVMRecommendationsExtendedFlow:
         active = _find_vm_row(rows, active_name, active_ns)
         assert active is not None
         assert vm_item_metadata(active).get("is_idle") is False
+
+    @staticmethod
+    def _find_vm_row_by_engine(
+        rows: list[dict[str, Any]], vm_name: str, namespace: str, engine: str
+    ) -> Optional[dict[str, Any]]:
+        for row in rows:
+            if row.get("vm_name") != vm_name or row.get("namespace") != namespace:
+                continue
+            if vm_item_metadata(row).get("engine") == engine:
+                return row
+        return None
+
+    @staticmethod
+    def _recommended_sizing(item: dict[str, Any]) -> tuple[Optional[int], Optional[float]]:
+        rec = item.get("recommended") or {}
+        vcpu = rec.get("vcpu")
+        mem = rec.get("memory_gib")
+        return (
+            int(vcpu) if vcpu is not None else None,
+            float(mem) if mem is not None else None,
+        )
+
+    def test_dual_engine_cost_and_performance(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        vm_flow_context: VMFlowContext,
+    ):
+        """Cost and performance engines both recommend the same VM; performance uses higher percentiles."""
+        vm_name, namespace = VM_DUAL_ENGINE
+        base_params = {
+            "filter[cluster]": vm_flow_context.cluster_id,
+            "filter[vm_name]": vm_name,
+            "filter[namespace]": namespace,
+            "filter[term]": "medium_term",
+            "limit": 10,
+        }
+
+        cost_resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_flow_context.auth,
+            {**base_params, "filter[engine]": "cost"},
+        )
+        skip_if_vm_plugin_disabled(cost_resp)
+        assert cost_resp.status_code == 200, cost_resp.text
+
+        perf_resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_flow_context.auth,
+            {**base_params, "filter[engine]": "performance"},
+        )
+        skip_if_vm_plugin_disabled(perf_resp)
+        assert perf_resp.status_code == 200, perf_resp.text
+
+        cost_row = self._find_vm_row_by_engine(
+            cost_resp.json().get("data") or [], vm_name, namespace, "cost"
+        )
+        perf_row = self._find_vm_row_by_engine(
+            perf_resp.json().get("data") or [], vm_name, namespace, "performance"
+        )
+        assert cost_row, f"No cost-engine recommendation for {vm_name}/{namespace}"
+        assert perf_row, f"No performance-engine recommendation for {vm_name}/{namespace}"
+
+        cost_cpu, cost_mem = self._recommended_sizing(cost_row)
+        perf_cpu, perf_mem = self._recommended_sizing(perf_row)
+        assert cost_cpu is not None and perf_cpu is not None
+        assert cost_mem is not None and perf_mem is not None
+        assert perf_cpu >= cost_cpu, (
+            f"performance vcpu {perf_cpu} should be >= cost vcpu {cost_cpu}"
+        )
+        assert perf_mem >= cost_mem, (
+            f"performance memory {perf_mem} should be >= cost memory {cost_mem}"
+        )
 
     def test_vm_settings_endpoint(
         self,
