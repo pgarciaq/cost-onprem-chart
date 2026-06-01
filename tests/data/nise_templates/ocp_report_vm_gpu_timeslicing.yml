@@ -1,0 +1,32 @@
+---
+# OCP VM ROS data for production vGPU time-slicing E2E (notifications 56–57).
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_gpu_timeslicing.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        # Underutilized T4 — time-slice + vGPU profile (notification 56).
+        - vm_name: gpu-timeslice-underutil-vm
+          namespace: inference
+          node_name: worker-gpu-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA T4"
+          gpu_utilization: low
+        # High frame-buffer usage with moderate SM util (notification 57).
+        - vm_name: gpu-fb-saturated-vm-01
+          namespace: inference
+          node_name: worker-gpu-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 32
+          disk_gib: 200
+          gpu_count: 1
+          gpu_model: "NVIDIA T4"
+          gpu_utilization: fb_saturated

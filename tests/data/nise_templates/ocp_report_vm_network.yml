@@ -1,0 +1,33 @@
+---
+# OCP VM ROS data for n1 network-optimized recommendation E2E (notification 55).
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_network.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        # Baseline VM without network saturation (control).
+        - vm_name: network-baseline-vm-01
+          namespace: production
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          fixed_usage:
+            cpu_pct: 0.35
+            mem_pct: 0.55
+        # Network-saturated workload for n1.* and notification 55.
+        - vm_name: network-heavy-vm-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 16
+          disk_gib: 100
+          network_heavy: true
+          fixed_usage:
+            cpu_pct: 0.35
+            mem_pct: 0.50
