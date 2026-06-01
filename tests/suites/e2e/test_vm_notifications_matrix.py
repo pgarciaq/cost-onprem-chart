@@ -69,9 +69,12 @@ NOTIF_VGPU_PROFILE = 56
 NOTIF_TIMESLICE_UNSAFE_FB = 57
 NOTIF_VM_IO_SEQUENTIAL = 58
 NOTIF_VM_IO_RANDOM = 59
+NOTIF_VM_REDUNDANT_COLOCATION = 60
+NOTIF_VM_SHARED_STORAGE = 62
+NOTIF_VM_NUMA_OVERSIZED = 63
 
 VM_NOTIF_CODES_DIRECT = range(37, 43)
-VM_NOTIF_CODES_ALL = range(37, 60)
+VM_NOTIF_CODES_ALL = range(37, 64)
 
 # VM names from tests/data/nise_templates/ocp_report_vm_notifications.yml
 VM_NOTIF_EXPECTATIONS: dict[tuple[str, str], set[int]] = {
@@ -102,6 +105,9 @@ VM_NOTIF_E2E_CROSS_REF: dict[int, str] = {
     NOTIF_TIMESLICE_UNSAFE_FB: "test_vm_gpu_timeslicing_flow.py::TestVMGPUTimesliceExtendedFlow::test_notification_code_57_fb_pressure",
     NOTIF_VM_IO_SEQUENTIAL: "test_vm_io_profiling_flow.py::TestVMIOProfilingExtendedFlow::test_notification_code_58_sequential",
     NOTIF_VM_IO_RANDOM: "test_vm_io_profiling_flow.py::TestVMIOProfilingExtendedFlow::test_notification_code_59_random",
+    NOTIF_VM_REDUNDANT_COLOCATION: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_redundant_colocation_notification_60",
+    NOTIF_VM_SHARED_STORAGE: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_shared_storage_flag_and_notification_62",
+    NOTIF_VM_NUMA_OVERSIZED: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_numa_oversized_notification_63",
 }
 
 
