@@ -46,7 +46,7 @@ def _has_container_recommendations(
 def _plugin_sum(by_plugin: dict[str, Any]) -> float:
     """Sum plugin savings included in fleet total (GPU excluded at read time)."""
     total = 0.0
-    for key in ("container", "node", "pvc", "snapshot"):
+    for key in ("container", "node", "pvc", "snapshot", "vm"):
         value = by_plugin.get(key)
         if value is not None:
             total += float(value)
@@ -118,9 +118,9 @@ class TestSavingsSummaryE2E:
         )
         assert resp.status_code == 200, resp.text
         by_plugin = resp.json()["by_plugin"]
-        for key in ("container", "node", "pvc"):
+        for key in ("container", "node", "pvc", "vm"):
             assert key in by_plugin, f"by_plugin missing required key {key!r}"
-        # snapshot/gpu may be zero or absent depending on cluster data
+        # snapshot/gpu may be zero depending on cluster data
         for optional in ("snapshot", "gpu"):
             if optional in by_plugin:
                 assert by_plugin[optional] is None or isinstance(
