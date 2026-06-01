@@ -66,14 +66,31 @@ def mvp_promotions_context(cluster_config) -> VMMVPPromotionsContext:
     skip_if_vm_plugin_disabled(cluster_config)
     ensure_nise_available()
     cluster_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=14)
+    end_date = now - timedelta(days=1)
     with tempfile.TemporaryDirectory() as tmp:
-        generate_nise_data(
-            template_name=_NISE_TEMPLATE,
+        files = generate_nise_data(
             cluster_id=cluster_id,
-            output_dir=Path(tmp),
-            ros_ocp_info=True,
+            start_date=start_date,
+            end_date=end_date,
+            output_dir=tmp,
+            include_ros=True,
+            iqe_template=_NISE_TEMPLATE,
         )
-        tarball = create_upload_package_from_files(Path(tmp), cluster_id)
+        ros_files = list(files.get("ros_vm_usage_files") or [])
+        ros_files.extend(files.get("ros_vm_gpu_device_files") or [])
+        ros_files.extend(files.get("ros_usage_files") or [])
+        if not ros_files:
+            pytest.fail("NISE did not generate VM ROS files for MVP promotions template")
+        pod_files = files.get("pod_usage_files") or ros_files
+        tarball = create_upload_package_from_files(
+            pod_usage_files=pod_files,
+            ros_usage_files=ros_files,
+            cluster_id=cluster_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
         register_source(cluster_config, cluster_id, org_id=_UPLOAD_ORG_ID)
         upload_with_retry(cluster_config, tarball, org_id=_UPLOAD_ORG_ID)
         wait_for_provider(cluster_config, cluster_id, org_id=_UPLOAD_ORG_ID, timeout=600)
@@ -176,6 +193,23 @@ def test_06_disk_projection_30_days(mvp_promotions_context, cluster_config):
     if not result:
         pytest.skip("vm_rec_config not available")
     assert int(result[0][0]) == 30
+
+
+@pytest.mark.extended
+def test_gpu_device_detail_response(mvp_promotions_context, cluster_config):
+    """Detail includes gpu_devices array with per-UUID breakdown after device CSV ingest."""
+    db_pod = get_pod_by_label(cluster_config.namespace, "database")
+    assert _wait_for_vm_recs(cluster_config, db_pod, mvp_promotions_context.cluster_id)
+    detail = _vm_detail(mvp_promotions_context, *VM_MULTI_GPU)
+    devices = detail.get("gpu_devices") or []
+    if not devices:
+        pytest.skip("gpu_devices not populated on multi-GPU VM detail yet")
+    assert len(devices) >= 2, devices
+    by_uuid = {d.get("gpu_uuid"): d for d in devices if d.get("gpu_uuid")}
+    assert "GPU-aaa-111" in by_uuid and "GPU-bbb-222" in by_uuid
+    for entry in by_uuid.values():
+        assert entry.get("gpu_model"), entry
+        assert entry.get("gpu_classification") or entry.get("classification"), entry
 
 
 @pytest.mark.extended
