@@ -32,6 +32,24 @@ generators:
           memory_gib: 8
           disk_gib: 100
           high_io: true
+        - vm_name: sequential-io-vm-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          sequential_io: true
+        - vm_name: random-io-vm-01
+          namespace: vm-notifications
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          random_io: true
         - vm_name: disk-filling-guest-01
           namespace: vm-notifications
           node_name: worker-1
