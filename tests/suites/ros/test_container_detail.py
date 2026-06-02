@@ -416,6 +416,83 @@ class TestContainerDetailE2E:
         for item in body.get("data") or []:
             assert item.get("idle_state") == "idle"
 
+    def test_container_filter_idle_state_zombie(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """When zombie rows exist, each returned row must have idle_state=zombie."""
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[idle_state]": "zombie", "limit": 20},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        if not items:
+            pytest.skip("No zombie container recommendations in cluster")
+        for item in items:
+            assert item.get("idle_state") == "zombie", (
+                f"Expected idle_state=zombie, got {item.get('idle_state')!r}"
+            )
+
+    def test_container_filter_gpu_model(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[gpu_model] returns 200 when GPU data exists."""
+        gpu_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[has_gpu]": "true", "limit": 1},
+            timeout=60,
+        )
+        assert gpu_resp.status_code == 200, gpu_resp.text
+        gpu_items = gpu_resp.json().get("data") or []
+        if not gpu_items:
+            pytest.skip("No GPU container data in cluster")
+
+        gpu_block = gpu_items[0].get("gpu") or {}
+        gpu_model = gpu_block.get("current_gpu_model")
+        if not gpu_model:
+            pytest.skip("Sample GPU container missing current_gpu_model")
+
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[gpu_model]": gpu_model, "filter[has_gpu]": "true", "limit": 20},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        _assert_paginated_envelope(resp.json())
+
+    def test_container_order_by_variation_fields(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """Variation sort keys return 200."""
+        for order_by in (
+            "cpu_variation_medium_cost",
+            "memory_variation_medium_cost",
+            "memory_variation_long_performance",
+        ):
+            resp = http_session.get(
+                get_recommendations_endpoint(ros_api_url),
+                headers=container_auth,
+                params={"order_by": order_by, "order_how": "desc", "limit": 10},
+                timeout=60,
+            )
+            assert resp.status_code == 200, f"{order_by}: {resp.text}"
+            _assert_paginated_envelope(resp.json())
+
     def test_container_keyset_pagination(
         self,
         ros_api_url: str,
