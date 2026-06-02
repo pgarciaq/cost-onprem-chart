@@ -335,6 +335,64 @@ class TestClusterQuotaRecommendationsE2E:
         assert by_project.status_code == 200, by_project.text
         assert _list_row_keys(by_namespace.json()) == _list_row_keys(by_project.json())
 
+    def test_cluster_quota_filter_recommendation_type(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 20}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        rec_type = items[0].get("recommendation_type")
+        if rec_type not in VALID_CLUSTER_QUOTA_RECOMMENDATION_TYPES:
+            pytest.skip("First row has no recommendation_type for filter test")
+
+        filtered = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[recommendation_type]": rec_type, "limit": 50},
+        )
+        assert filtered.status_code == 200, filtered.text
+        for item in filtered.json().get("data") or []:
+            assert item.get("recommendation_type") == rec_type
+
+    def test_cluster_quota_filter_risk_level(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 20}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        risk = items[0].get("risk_level")
+        if risk not in VALID_CLUSTER_QUOTA_RISK_LEVELS:
+            pytest.skip("First row has no risk_level for filter test")
+
+        filtered = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[risk_level]": risk, "limit": 50},
+        )
+        assert filtered.status_code == 200, filtered.text
+        for item in filtered.json().get("data") or []:
+            assert item.get("risk_level") == risk
+
     def test_cluster_quota_savings_when_present(
         self,
         ros_api_url: str,
@@ -628,24 +686,37 @@ class TestClusterQuotaRecommendationsExtended:
     """Extended CRQ tests requiring controlled data seeding (not run in default CI)."""
 
     def test_cluster_quota_savings_recalc_after_cost_model_update(self):
-        """Savings recalc via POST /internal/recalculate-savings is covered by Go unit tests.
+        """Savings recalc via POST /internal/recalculate-savings is not validated in default CI.
 
-        End-to-end validation requires a cost model update plus Koku masu notification to ROS.
-        See ros-ocp-backend internal/savings and costmgmt-api-cheatsheet Bruno example
-        POST internal recalculate-savings quota.bru.
+        Prerequisites for a real E2E run:
+        - ROS_SAVINGS_ESTIMATES_ENABLED=true and ROS_SAVINGS_RECALCULATION_ENABLED=true
+        - Koku masu deployed with ros_savings_recalc calling POST /internal/recalculate-savings
+        - Existing tighten CRQ rows with non-zero savings_dollars_monthly
+        - Cost model rate change that alters expected savings values
+
+        Go unit coverage:
+        - TestRecalculateClusterQuotaSavings_Unit (internal/engine/savings_recalculate_test.go)
+        - TestRecalculateSavingsForOrg_QuotaUpdatesSavingsNotClassification (same file)
         """
         pytest.skip(
             "Extended: requires cost model update + masu→ROS recalc integration; "
-            "see Go unit tests and Bruno examples"
+            "see TestRecalculateClusterQuotaSavings_Unit"
         )
 
     def test_cluster_quota_notification_codes_on_blocking_data(self):
-        """Notification code 72/73 emission requires CRQ rows at hard capacity or high risk.
+        """Notification code 70–73 emission requires CRQ rows at hard capacity or high risk.
 
-        Engine behavior is validated in ros-ocp-backend/internal/engine/quota_notifications_test.go
-        and TestClusterQuotaNotificationCodes_ObjectCountBlocking.
+        Prerequisites for a real E2E run:
+        - Seeded cluster_quota_recommendation_sets with used >= hard (code 72) or
+          risk_level=high (codes 70 and 73) or recommendation_type=tighten (code 71)
+        - cluster-quota plugin enabled and notification catalog accessible
+
+        Go unit coverage:
+        - TestClusterQuotaNotificationCodes_AtCapacity (internal/engine/quota_notifications_test.go)
+        - TestClusterQuotaNotificationCodes_BlockingAndOversized (same file)
+        - TestClusterQuotaNotificationCodes_ObjectCountBlocking (internal/engine/recommend_cluster_quota_test.go)
         """
         pytest.skip(
             "Extended: requires seeded CRQ at blocking/high-risk thresholds; "
-            "see Go unit tests for notification derivation"
+            "see TestClusterQuotaNotificationCodes_* unit tests"
         )
