@@ -427,6 +427,68 @@ class TestClusterQuotaRecommendationsE2E:
         if not saw_savings:
             pytest.skip("No estimated_savings on tighten cluster quota rows")
 
+    def test_cluster_quota_storage_and_pods_in_quota_blocks(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        """When operator exports storage/pods metrics, quota blocks include those keys."""
+        resp = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 20}
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        saw_storage_or_pods = False
+        for item in items:
+            for block_name in ("quota_hard", "quota_used", "quota_recommended"):
+                block = item.get(block_name)
+                if not isinstance(block, dict):
+                    continue
+                if "storage_request_bytes" in block or "pods" in block:
+                    saw_storage_or_pods = True
+                    if "storage_request_bytes" in block:
+                        assert isinstance(block["storage_request_bytes"], int)
+                    if "pods" in block:
+                        assert isinstance(block["pods"], int)
+
+        if not saw_storage_or_pods:
+            pytest.skip(
+                "No cluster quota rows with storage_request_bytes or pods in quota blocks"
+            )
+
+    def test_cluster_quota_notification_codes_catalog(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        """GET notification-codes?filter[plugin]=cluster-quota returns codes 70-73."""
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 1}
+        )
+        _skip_if_plugin_disabled(baseline)
+
+        url = (
+            f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+            "recommendations/openshift/notification-codes"
+        )
+        resp = http_session.get(
+            url,
+            headers=cluster_quota_auth,
+            params={"filter[plugin]": "cluster-quota"},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "data" in body
+        codes = {entry["code"] for entry in body["data"]}
+        assert codes == {70, 71, 72, 73}
+
     def test_cluster_quota_filter_empty_for_unknown_cluster(
         self,
         ros_api_url: str,
