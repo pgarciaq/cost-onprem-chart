@@ -165,7 +165,16 @@ ros:
   #   ROS_GPU_TIMESLICING_BASE_PENALTY: "0.70"
   #   ROS_GPU_TIMESLICING_IMPACTED_WEIGHT: "0.30"
   #   ROS_GPU_NODE_FRESHNESS_DAYS: "7"
-  thresholdEnv: {}
+  #
+  # Node-level GPU time-slicing defaults below match ros-ocp-backend compiled defaults
+  # (internal/config/config.go, internal/engine/threshold_settings.go). Override any key
+  # here to lock that threshold for all tenants via the Settings API.
+  thresholdEnv:
+    ROS_GPU_TIMESLICING_MAJORITY_THRESHOLD: "0.50"
+    ROS_GPU_TIMESLICING_MIN_REPLICAS: "2"
+    ROS_GPU_TIMESLICING_MAX_REPLICAS: "8"
+    ROS_GPU_TIMESLICING_BASE_PENALTY: "0.70"
+    ROS_GPU_TIMESLICING_IMPACTED_WEIGHT: "0.30"
 
   # Recommendation Poller Component - Polls Kruize for recommendations
   recommendationPoller:
