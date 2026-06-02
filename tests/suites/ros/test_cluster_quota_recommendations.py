@@ -261,6 +261,40 @@ class TestClusterQuotaRecommendationsE2E:
         assert by_crq.status_code == 200, by_crq.text
         assert _list_row_keys(by_name.json()) == _list_row_keys(by_crq.json())
 
+    def test_cluster_quota_filter_cluster_resource_quota_alias(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 5}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        crq_name = items[0].get("cluster_quota_name")
+        assert crq_name, "row must include cluster_quota_name for alias test"
+
+        by_name = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[cluster_quota_name]": crq_name, "limit": 50},
+        )
+        by_alias = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[cluster_resource_quota]": crq_name, "limit": 50},
+        )
+        assert by_name.status_code == 200, by_name.text
+        assert by_alias.status_code == 200, by_alias.text
+        assert _list_row_keys(by_name.json()) == _list_row_keys(by_alias.json())
+
     def test_cluster_quota_filter_project_alias_matches_namespace(
         self,
         ros_api_url: str,
@@ -438,6 +472,52 @@ class TestClusterQuotaRecommendationsE2E:
         utils = [max_util(i) for i in items]
         assert utils == sorted(utils, reverse=True)
 
+    def test_cluster_quota_order_by_risk_level_desc(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"limit": 20, "order_by": "risk_level", "order_how": "desc"},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if len(items) < 2:
+            pytest.skip("Need multiple cluster quota rows for order_by test")
+
+        rank = {"high": 3, "medium": 2, "low": 1, "none": 0}
+        levels = [rank.get(i.get("risk_level"), 0) for i in items]
+        assert levels == sorted(levels, reverse=True)
+
+    def test_cluster_quota_order_by_estimated_monthly_savings_desc(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"limit": 20, "order_by": "estimated_monthly_savings", "order_how": "desc"},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        tighten_rows = [i for i in items if i.get("recommendation_type") == "tighten"]
+        if len(tighten_rows) < 2:
+            pytest.skip("Need multiple tighten cluster quota rows for savings order_by test")
+
+        savings = [
+            (i.get("estimated_savings") or {}).get("value") or 0 for i in tighten_rows
+        ]
+        assert savings == sorted(savings, reverse=True)
+
     def test_cluster_quota_group_by_cluster(
         self,
         ros_api_url: str,
@@ -538,3 +618,34 @@ class TestClusterQuotaRecommendationsE2E:
         )
         _skip_if_plugin_disabled(detail)
         assert detail.status_code == 404
+
+
+@pytest.mark.ros
+@pytest.mark.integration
+@pytest.mark.extended
+@pytest.mark.timeout(120)
+class TestClusterQuotaRecommendationsExtended:
+    """Extended CRQ tests requiring controlled data seeding (not run in default CI)."""
+
+    def test_cluster_quota_savings_recalc_after_cost_model_update(self):
+        """Savings recalc via POST /internal/recalculate-savings is covered by Go unit tests.
+
+        End-to-end validation requires a cost model update plus Koku masu notification to ROS.
+        See ros-ocp-backend internal/savings and costmgmt-api-cheatsheet Bruno example
+        POST internal recalculate-savings quota.bru.
+        """
+        pytest.skip(
+            "Extended: requires cost model update + masu→ROS recalc integration; "
+            "see Go unit tests and Bruno examples"
+        )
+
+    def test_cluster_quota_notification_codes_on_blocking_data(self):
+        """Notification code 72/73 emission requires CRQ rows at hard capacity or high risk.
+
+        Engine behavior is validated in ros-ocp-backend/internal/engine/quota_notifications_test.go
+        and TestClusterQuotaNotificationCodes_ObjectCountBlocking.
+        """
+        pytest.skip(
+            "Extended: requires seeded CRQ at blocking/high-risk thresholds; "
+            "see Go unit tests for notification derivation"
+        )
