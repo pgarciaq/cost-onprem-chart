@@ -25,6 +25,30 @@ def _container_detail_url(ros_api_url: str, recommendation_id: str) -> str:
     return f"{base}/{recommendation_id}"
 
 
+CONTAINER_ORDER_BY_ENUM = (
+    "cluster",
+    "project",
+    "workload_type",
+    "workload",
+    "container",
+    "last_reported",
+    "cpu_request_current",
+    "memory_request_current",
+    "cpu_variation_short_cost",
+    "cpu_variation_short_performance",
+    "cpu_variation_medium_cost",
+    "cpu_variation_medium_performance",
+    "cpu_variation_long_cost",
+    "cpu_variation_long_performance",
+    "memory_variation_short_cost",
+    "memory_variation_short_performance",
+    "memory_variation_medium_cost",
+    "memory_variation_medium_performance",
+    "memory_variation_long_cost",
+    "memory_variation_long_performance",
+)
+
+
 def _assert_paginated_envelope(body: dict[str, Any]) -> None:
     assert "meta" in body, "response must include meta"
     assert "data" in body, "response must include data"
@@ -419,6 +443,30 @@ class TestContainerDetailE2E:
         assert resp.status_code == 200, resp.text
         _assert_paginated_envelope(resp.json())
 
+    def test_container_filter_idle_state_active(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """When active rows exist, each returned row must have idle_state=active."""
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[idle_state]": "active", "limit": 20},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        if not items:
+            pytest.skip("No active container recommendations in cluster")
+        for item in items:
+            assert item.get("idle_state") == "active", (
+                f"Expected idle_state=active, got {item.get('idle_state')!r}"
+            )
+
     def test_container_filter_idle_state(
         self,
         ros_api_url: str,
@@ -499,15 +547,8 @@ class TestContainerDetailE2E:
         container_auth: dict,
         http_session: requests.Session,
     ):
-        """Variation and core sort keys return 200."""
-        for order_by in (
-            "last_reported",
-            "cpu_variation_medium_cost",
-            "memory_variation_medium_cost",
-            "memory_variation_long_performance",
-            "cpu_variation_short_cost",
-            "cpu_variation_long_performance",
-        ):
+        """All OpenAPI order_by enum values return 200."""
+        for order_by in CONTAINER_ORDER_BY_ENUM:
             resp = http_session.get(
                 get_recommendations_endpoint(ros_api_url),
                 headers=container_auth,
@@ -516,6 +557,44 @@ class TestContainerDetailE2E:
             )
             assert resp.status_code == 200, f"{order_by}: {resp.text}"
             _assert_paginated_envelope(resp.json())
+
+    def test_container_offset_pagination_pages(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """limit=1&offset=0 and offset=1 return distinct rows when count > 1."""
+        page1_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"limit": 1, "offset": 0},
+            timeout=60,
+        )
+        assert page1_resp.status_code == 200, page1_resp.text
+        page1 = page1_resp.json()
+        _assert_paginated_envelope(page1)
+        meta = page1.get("meta") or {}
+        assert meta.get("limit") == 1
+        assert meta.get("offset") == 0
+
+        if meta.get("count", 0) <= 1:
+            pytest.skip("Need more than one container for offset pagination")
+
+        page2_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"limit": 1, "offset": 1},
+            timeout=60,
+        )
+        assert page2_resp.status_code == 200, page2_resp.text
+        page2 = page2_resp.json()
+        _assert_paginated_envelope(page2)
+        assert page2.get("meta", {}).get("offset") == 1
+
+        ids1 = {item.get("id") for item in page1.get("data") or []}
+        ids2 = {item.get("id") for item in page2.get("data") or []}
+        assert ids1.isdisjoint(ids2), "Offset page 2 must not repeat page 1 rows"
 
     def test_container_keyset_pagination(
         self,
