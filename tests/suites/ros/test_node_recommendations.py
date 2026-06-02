@@ -55,6 +55,31 @@ def _engine_sizing(engine: Optional[dict[str, Any]]) -> tuple[Optional[float], O
     return engine.get("recommended_cpu_cores"), engine.get("recommended_memory_gib")
 
 
+def _assert_node_list_engine_filter(body: dict[str, Any], want_engine: str) -> None:
+    """When engine filter is set, list rows should expose only that engine block."""
+    items = body.get("data") or []
+    if not items:
+        pytest.skip(f"No node recommendations to validate engine={want_engine}")
+
+    other_engine = "performance" if want_engine == "cost" else "cost"
+    filter_omits_other = True
+
+    for item in items:
+        engines = _node_medium_engines(item)
+        assert want_engine in engines and isinstance(engines[want_engine], dict), (
+            f"expected {want_engine!r} under recommendation_engines, got {list(engines.keys())}"
+        )
+        if other_engine in engines:
+            filter_omits_other = False
+
+    if filter_omits_other:
+        for item in items:
+            engines = _node_medium_engines(item)
+            assert other_engine not in engines, (
+                f"engine={want_engine} should omit {other_engine!r} from recommendation_engines"
+            )
+
+
 @pytest.fixture
 def node_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -117,6 +142,7 @@ class TestNodeRecommendationsE2E:
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
+        _assert_node_list_engine_filter(resp.json(), "cost")
 
     def test_nodes_filter_by_engine_performance(
         self,
@@ -133,6 +159,7 @@ class TestNodeRecommendationsE2E:
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
+        _assert_node_list_engine_filter(resp.json(), "performance")
 
     def test_nodes_savings_fields_present(
         self,

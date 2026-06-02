@@ -74,6 +74,33 @@ def _engine_cpu_memory(engine: dict[str, Any]) -> tuple[Optional[float], Optiona
     return cpu.get("amount"), memory.get("amount")
 
 
+def _assert_container_list_engine_filter(body: dict[str, Any], want_engine: str) -> None:
+    """Mirror ros-ocp-backend assertContainerListEngineFilterResponse for list payloads."""
+    _assert_paginated_envelope(body)
+    items = body.get("data") or []
+    if not items:
+        pytest.skip(f"No container recommendations to validate filter[engine]={want_engine}")
+
+    other_engine = "performance" if want_engine == "cost" else "cost"
+    filter_omits_other = True
+
+    for item in items:
+        engines = _medium_term_engines(item)
+        found_want = want_engine in engines and isinstance(engines[want_engine], dict)
+        assert found_want, (
+            f"expected {want_engine!r} under recommendation_engines, got keys {list(engines.keys())}"
+        )
+        if other_engine in engines:
+            filter_omits_other = False
+
+    if filter_omits_other:
+        for item in items:
+            engines = _medium_term_engines(item)
+            assert other_engine not in engines, (
+                f"filter[engine]={want_engine} should omit {other_engine!r} from recommendation_engines"
+            )
+
+
 def _first_container_item(
     ros_api_url: str,
     container_auth: dict,
@@ -426,7 +453,7 @@ class TestContainerDetailE2E:
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
-        _assert_paginated_envelope(resp.json())
+        _assert_container_list_engine_filter(resp.json(), "cost")
 
     def test_container_list_filter_engine_performance(
         self,
@@ -441,7 +468,7 @@ class TestContainerDetailE2E:
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
-        _assert_paginated_envelope(resp.json())
+        _assert_container_list_engine_filter(resp.json(), "performance")
 
     def test_container_filter_idle_state_active(
         self,
