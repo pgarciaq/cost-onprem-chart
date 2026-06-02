@@ -1,0 +1,66 @@
+---
+# OCP cost + GPU MIG usage for Koku GPU/MIG report E2E.
+# Generates ocp_pod_usage.csv, ocp_gpu_usage.csv (mig_instance_id), and label files.
+#
+# Use with generate_nise_data(..., iqe_template="ocp_report_gpu_mig.yml", include_ros=False)
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: e2e-mig-node-h100
+          node_labels: label_node_name:e2e-mig-node-h100|label_tier:node|nvidia_com_gpu_present:True
+          cpu_cores: 32
+          memory_gig: 256
+          resource_id: i-e2e-mig-h100
+          namespaces:
+            llm-inference-mig:
+              namespace_labels: project_name:llm-inference-mig
+              pods:
+                - pod:
+                  pod_name: mig-inference-api
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 2.5
+                  mem_usage_gig:
+                    full_period: 12
+                  labels: label_app:llama-inference|label_workload:inference
+                  gpus:
+                    - gpu:
+                      gpu_model: "NVIDIA H100 80GB HBM3"
+                      gpu_memory_capacity_mib: 81920
+                      mig_instances:
+                        - mig_instance:
+                          mig_profile: "1g.18gb"
+                          mig_strategy: "single"
+                        - mig_instance:
+                          mig_profile: "1g.18gb"
+                          mig_strategy: "single"
+            embeddings-mig:
+              namespace_labels: project_name:embeddings-mig
+              pods:
+                - pod:
+                  pod_name: embeddings-api
+                  cpu_request: 2
+                  mem_request_gig: 8
+                  cpu_limit: 4
+                  mem_limit_gig: 16
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.0
+                  mem_usage_gig:
+                    full_period: 6
+                  labels: label_app:embeddings|label_workload:inference
+                  gpus:
+                    - gpu:
+                      gpu_model: "NVIDIA H100 80GB HBM3"
+                      gpu_memory_capacity_mib: 81920
+                      mig_instances:
+                        - mig_instance:
+                          mig_profile: "3g.40gb"
+                          mig_strategy: "mixed"

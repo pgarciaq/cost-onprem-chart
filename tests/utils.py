@@ -675,6 +675,7 @@ def create_upload_package_from_files(
     end_date: Optional[datetime] = None,
     node_label_files: Optional[list[str]] = None,
     namespace_label_files: Optional[list[str]] = None,
+    gpu_usage_files: Optional[list[str]] = None,
     extra_resource_optimization_files: Optional[list[str]] = None,
 ) -> str:
     """Create a tar.gz upload package from NISE-generated files.
@@ -690,6 +691,7 @@ def create_upload_package_from_files(
         end_date: End date for the report period
         node_label_files: Optional list of paths to node label CSV files
         namespace_label_files: Optional list of paths to namespace label CSV files
+        gpu_usage_files: Optional list of paths to ocp_gpu_usage CSV files (Koku cost management)
         extra_resource_optimization_files: Optional extra ROS files (e.g. cluster_instance_types.json)
     
     Returns:
@@ -722,10 +724,13 @@ def create_upload_package_from_files(
     ros_filenames.extend(os.path.basename(f) for f in extra_ros)
     node_label_filenames = [os.path.basename(f) for f in (node_label_files or [])]
     namespace_label_filenames = [os.path.basename(f) for f in (namespace_label_files or [])]
-    
+    gpu_usage_filenames = [os.path.basename(f) for f in (gpu_usage_files or [])]
+
     # Combine all files for the manifest's "files" array
-    # Koku processes all files listed here, including label files
-    all_data_files = pod_filenames + node_label_filenames + namespace_label_filenames
+    # Koku processes all files listed here, including label and GPU usage files
+    all_data_files = (
+        pod_filenames + gpu_usage_filenames + node_label_filenames + namespace_label_filenames
+    )
 
     # Write manifest with separate file lists
     manifest = {
@@ -748,6 +753,9 @@ def create_upload_package_from_files(
         # Add pod usage files
         for filepath in pod_usage_files:
             tar.add(filepath, arcname=os.path.basename(filepath))
+        if gpu_usage_files:
+            for filepath in gpu_usage_files:
+                tar.add(filepath, arcname=os.path.basename(filepath))
         # Add ROS usage files
         for filepath in ros_usage_files:
             tar.add(filepath, arcname=os.path.basename(filepath))

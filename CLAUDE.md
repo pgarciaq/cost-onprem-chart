@@ -369,7 +369,7 @@ to boost the listener deployment's CPU during the run (~40-50% faster ingestion)
 ### Known Issues
 
 Tests are organized into skip groups with `SKIP_*` env vars. Key blockers:
-- **COST-7179** — GPU/MIG schema mismatch blocks ~90 tests + cascading failures
+- **COST-7179** — Resolved by koku migration 0344 (`mig_instance_id`); run IQE with `SKIP_GPU_TESTS=false` to validate
 - **90-day data** — NISE generates ~60 days; 90-day range tests fail (~228 tests)
 - **FLPATH-3423** — Source CRUD update returns 500 (1 test)
 

@@ -375,9 +375,9 @@ def generate_nise_data(
                      - "ocp_report_advanced.yml": Complex multi-node setup
     
     Returns:
-        Dict with keys: pod_usage_files, ros_usage_files, ros_vm_usage_files,
-        ros_vm_gpu_device_files, namespace_usage_files, cluster_quota_files,
-        node_label_files, namespace_label_files
+        Dict with keys: pod_usage_files, gpu_usage_files, ros_usage_files,
+        ros_vm_usage_files, ros_vm_gpu_device_files, namespace_usage_files,
+        cluster_quota_files, node_label_files, namespace_label_files
     """
     # Determine which YAML to use
     if iqe_template:
@@ -439,6 +439,7 @@ def generate_nise_data(
     # Categorize generated files
     files = {
         "pod_usage_files": [],
+        "gpu_usage_files": [],
         "ros_usage_files": [],
         "ros_vm_usage_files": [],
         "ros_vm_gpu_device_files": [],
@@ -457,6 +458,8 @@ def generate_nise_data(
                 
                 if "pod_usage" in f:
                     files["pod_usage_files"].append(full_path)
+                elif "gpu_usage" in f:
+                    files["gpu_usage_files"].append(full_path)
                 elif "ros_vm_usage" in f:
                     files["ros_vm_usage_files"].append(full_path)
                 elif "ros_vm_gpu_device" in f or "vm_gpu_device" in f:
@@ -926,6 +929,39 @@ def wait_for_summary_tables(
     if wait_for_condition(check_summary, timeout=timeout, interval=interval):
         return found_schema["name"]
     return None
+
+
+def wait_for_gpu_summary_tables(
+    namespace: str,
+    db_pod: str,
+    cluster_id: str,
+    schema_name: str,
+    timeout: int = 600,
+    interval: int = 30,
+) -> bool:
+    """Wait until reporting_ocp_gpu_summary_p has MIG rows for the cluster."""
+
+    def check_gpu_summary():
+        result = execute_db_query(
+            namespace,
+            db_pod,
+            "costonprem_koku",
+            "koku_user",
+            f"""
+            SELECT COUNT(*) FROM {schema_name}.reporting_ocp_gpu_summary_p
+            WHERE cluster_id = '{cluster_id}'
+              AND mig_instance_id IS NOT NULL
+              AND mig_instance_id != ''
+            """,
+        )
+        return result is not None and int(result[0][0]) > 0
+
+    return wait_for_condition(
+        check_gpu_summary,
+        timeout=timeout,
+        interval=interval,
+        description="reporting_ocp_gpu_summary_p MIG rows",
+    )
 
 
 # =============================================================================
