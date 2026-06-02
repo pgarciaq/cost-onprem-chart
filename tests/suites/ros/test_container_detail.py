@@ -368,6 +368,27 @@ class TestContainerDetailE2E:
                 f"Expected cluster_uuid={cluster_uuid!r}, got {item.get('cluster_uuid')!r}"
             )
 
+    def test_container_filter_namespace_alias(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[namespace] is an alias for filter[project] and returns 200."""
+        sample = _first_container_item(ros_api_url, container_auth, http_session)
+        namespace = sample.get("project")
+        if not namespace:
+            pytest.skip("Sample container missing project for namespace alias test")
+
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[namespace]": namespace, "limit": 50},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        _assert_paginated_envelope(resp.json())
+
     def test_container_list_filter_engine_cost(
         self,
         ros_api_url: str,
@@ -478,11 +499,14 @@ class TestContainerDetailE2E:
         container_auth: dict,
         http_session: requests.Session,
     ):
-        """Variation sort keys return 200."""
+        """Variation and core sort keys return 200."""
         for order_by in (
+            "last_reported",
             "cpu_variation_medium_cost",
             "memory_variation_medium_cost",
             "memory_variation_long_performance",
+            "cpu_variation_short_cost",
+            "cpu_variation_long_performance",
         ):
             resp = http_session.get(
                 get_recommendations_endpoint(ros_api_url),
