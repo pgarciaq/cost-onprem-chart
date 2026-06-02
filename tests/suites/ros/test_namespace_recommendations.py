@@ -196,3 +196,21 @@ class TestNamespaceRecommendationsE2E:
         )
         assert resp.status_code == 200, resp.text
         assert "data" in resp.json()
+
+    def test_namespace_filter_stale_false(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_namespaces(
+            http_session,
+            ros_api_url,
+            namespace_auth,
+            {"filter[stale]": "false", "limit": 10},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "meta" in body
+        assert "data" in body
+        assert isinstance(body["data"], list)
