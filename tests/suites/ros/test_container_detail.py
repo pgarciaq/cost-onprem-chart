@@ -262,7 +262,7 @@ class TestContainerDetailE2E:
         resp = http_session.get(
             get_recommendations_endpoint(ros_api_url),
             headers=container_auth,
-            params={"engine": "cost", "limit": 5},
+            params={"filter[engine]": "cost", "limit": 5},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
@@ -277,8 +277,62 @@ class TestContainerDetailE2E:
         resp = http_session.get(
             get_recommendations_endpoint(ros_api_url),
             headers=container_auth,
-            params={"engine": "performance", "limit": 5},
+            params={"filter[engine]": "performance", "limit": 5},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
         _assert_paginated_envelope(resp.json())
+
+    def test_container_filter_idle_state(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[idle_state]": "idle", "limit": 5},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        _assert_paginated_envelope(resp.json())
+
+    def test_container_notification_codes_catalog(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        url = (
+            f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+            "recommendations/openshift/notification-codes"
+        )
+        resp = http_session.get(
+            url,
+            headers=container_auth,
+            params={"filter[plugin]": "container"},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "data" in body
+        codes = {entry["code"] for entry in body["data"]}
+        assert codes == {1, 2, 3, 5, 6, 7, 8, 9, 21, 22, 25}
+
+    def test_container_csv_export(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"format": "csv", "limit": 10},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/csv" in content_type
+        assert len(resp.text) > 0
