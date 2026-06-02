@@ -17,7 +17,7 @@ from utils import assert_structured_savings, parse_savings_value
 
 from suites.ros.test_recommendations import get_fresh_token
 
-VALID_QUOTA_RECOMMENDATION_TYPES = frozenset({"tighten", "raise", "optimal"})
+VALID_QUOTA_RECOMMENDATION_TYPES = frozenset({"tighten", "raise", "optimal", "none"})
 VALID_QUOTA_RISK_LEVELS = frozenset({"high", "medium", "low", "none"})
 
 
@@ -379,3 +379,113 @@ class TestQuotaRecommendationsE2E:
             (i["cluster_uuid"], i["namespace"]) for i in second.json()["data"]
         }
         assert page1_keys.isdisjoint(page2_keys)
+
+    def test_quota_order_by_quota_name(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"limit": 20, "order_by": "quota_name", "order_how": "asc"},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if len(items) < 2:
+            pytest.skip("Need multiple quota rows for order_by test")
+        names = [i.get("quota_name") or "" for i in items]
+        assert names == sorted(names)
+
+    def test_quota_filter_recommendation_type_tighten(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[recommendation_type]": "tighten", "limit": 50},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No tighten quota rows in cluster")
+        for item in items:
+            assert item.get("recommendation_type") == "tighten"
+
+    def test_quota_group_by_cluster(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"group_by[cluster]": "*", "limit": 20},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        if body.get("meta", {}).get("count", 0) == 0:
+            pytest.skip("No quota recommendation data in cluster")
+
+        for item in body.get("data") or []:
+            assert item.get("cluster_uuid"), "group_by row must include cluster_uuid"
+            assert item.get("count", 0) >= 1, "group_by row must include aggregated count"
+
+    def test_quota_detail_endpoint(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 5})
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No quota recommendation data in cluster")
+
+        row = items[0]
+        cluster_uuid = row["cluster_uuid"]
+        namespace = row["namespace"]
+        params: dict[str, str] = {
+            "cluster_uuid": cluster_uuid,
+            "namespace": namespace,
+        }
+        if row.get("quota_name"):
+            params["quota_name"] = row["quota_name"]
+
+        detail_url = ros_api_url.rstrip("/").replace(
+            "/recommendations/openshift/quota",
+            "/recommendations/openshift/quota/detail",
+        )
+        detail = http_session.get(
+            detail_url,
+            headers=quota_auth,
+            params=params,
+            timeout=60,
+        )
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert body.get("cluster_uuid") == cluster_uuid
+        assert body.get("namespace") == namespace
+        assert body.get("recommendation_type") in VALID_QUOTA_RECOMMENDATION_TYPES
+        assert body.get("risk_level") in VALID_QUOTA_RISK_LEVELS
+        assert "history" in body
+        assert isinstance(body["history"], list)
+        if body["history"]:
+            entry = body["history"][0]
+            assert entry.get("recorded_at")
+            assert entry.get("resource")
+            assert entry.get("recommendation_type") in VALID_QUOTA_RECOMMENDATION_TYPES
+            assert entry.get("risk_level") in VALID_QUOTA_RISK_LEVELS
