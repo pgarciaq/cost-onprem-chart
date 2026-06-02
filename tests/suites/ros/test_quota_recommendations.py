@@ -467,6 +467,51 @@ class TestQuotaRecommendationsE2E:
             assert item.get("namespace"), "group_by row must include namespace"
             assert item.get("count", 0) >= 1, "group_by row must include aggregated count"
 
+    def test_quota_notification_codes_filter(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        """GET notification-codes?filter[plugin]=quota returns codes 70-72."""
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 1})
+        _skip_if_plugin_disabled(baseline)
+
+        url = (
+            f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+            "recommendations/openshift/notification-codes"
+        )
+        resp = http_session.get(
+            url,
+            headers=quota_auth,
+            params={"filter[plugin]": "quota"},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "data" in body
+        codes = {entry["code"] for entry in body["data"]}
+        assert codes == {70, 71, 72}
+
+    def test_quota_filter_recommendation_type_none(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[recommendation_type]": "none", "limit": 50},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "meta" in body
+        assert "data" in body
+        assert isinstance(body["data"], list)
+
     def test_quota_detail_endpoint(
         self,
         ros_api_url: str,
