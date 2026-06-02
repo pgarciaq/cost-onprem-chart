@@ -123,6 +123,9 @@ class TestPVCRecommendationsE2E:
         assert "capacity_bytes" in item
         assert isinstance(item["capacity_bytes"], int)
         assert item["capacity_bytes"] >= 0
+        # vm_name is optional; when present it must be a non-empty string (operator storage CSV).
+        if "vm_name" in item and item["vm_name"]:
+            assert isinstance(item["vm_name"], str)
 
     def test_pvc_filter_by_cluster(
         self,
@@ -271,6 +274,31 @@ class TestPVCRecommendationsE2E:
             assert term_row.get("recommendation_type")
             assert "usage_ratio" in term_row
             assert "capacity_bytes" in term_row
+
+    def test_pvc_vm_name_from_rightsizing_fixture(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        """pvc-vm-disk in pvc-rightsizing should expose vm_name after operator/nise ingest."""
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {"namespace": "pvc-rightsizing", "limit": 50},
+        )
+        if resp.status_code == 404:
+            pytest.skip("PVC recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        vm_rows = [
+            item
+            for item in resp.json().get("data") or []
+            if item.get("persistentvolumeclaim") == "pvc-vm-disk"
+        ]
+        if not vm_rows:
+            pytest.skip("pvc-vm-disk not in recommendation set (ingest may be pending)")
+        assert vm_rows[0].get("vm_name") == "fedora-vm", vm_rows[0]
 
     def test_pvc_filter_by_storageclass(
         self,

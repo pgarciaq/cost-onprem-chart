@@ -8,6 +8,7 @@
 #   pvc-near-full   — 10Gi capacity, ~9.5Gi usage (~95% utilization)
 #   pvc-orphaned    — 20Gi capacity, zero usage (unmounted workload pattern)
 #   pvc-healthy     — 50Gi capacity, ~30Gi usage (~60% utilization)
+#   pvc-vm-disk     — VM-owned PVC (virt-launcher pod + vm_name for ROS correlation)
 generators:
   - OCPGenerator:
       start_date: last_month
@@ -86,3 +87,17 @@ generators:
                       capacity_gig: 50
                       volume_claim_usage_gig:
                         full_period: 30
+                - volume:
+                  volume_name: vol-vm-disk
+                  storage_class: ocs-storagecluster-ceph-rbd
+                  volume_request_gig: 40
+                  labels: label_scenario:vm_owned
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: pvc-vm-disk
+                      pod_name: virt-launcher-fedora-vm-x9y8z
+                      vm_name: fedora-vm
+                      labels: label_scenario:vm_owned
+                      capacity_gig: 40
+                      volume_claim_usage_gig:
+                        full_period: 12
