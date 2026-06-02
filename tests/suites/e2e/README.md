@@ -155,6 +155,16 @@ NAMESPACE=cost-onprem ./scripts/run-pytest.sh --ros -k pvc_recommendations
 
 ---
 
+## Savings recalculation (Koku → ROS)
+
+After a cost model update, Koku's masu worker calls `POST /internal/recalculate-savings` on
+the ROS API. Supported recommendation types: `container`, `node`, `pvc`, `quota`,
+`cluster-quota`. There is no dedicated E2E test for the callback path; quota savings
+freshness is covered indirectly by quota recommendation tests (`test_quota_recommendations.py`)
+and by updating cost models in integration environments.
+
+---
+
 ## Namespace recommendations flow (`test_namespace_recommendations_flow.py`)
 
 Extended E2E that validates the namespace recommendation pipeline end-to-end:
