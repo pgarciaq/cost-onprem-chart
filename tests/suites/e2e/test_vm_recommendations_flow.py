@@ -462,12 +462,19 @@ class TestVMRecommendationsExtendedFlow:
         skip_if_vm_plugin_disabled(perf_resp)
         assert perf_resp.status_code == 200, perf_resp.text
 
-        cost_row = self._find_vm_row_by_engine(
-            cost_resp.json().get("data") or [], vm_name, namespace, "cost"
-        )
-        perf_row = self._find_vm_row_by_engine(
-            perf_resp.json().get("data") or [], vm_name, namespace, "performance"
-        )
+        cost_rows = cost_resp.json().get("data") or []
+        perf_rows = perf_resp.json().get("data") or []
+        for row in cost_rows:
+            assert vm_item_metadata(row).get("engine") == "cost", (
+                "filter[engine]=cost must not return performance-engine rows"
+            )
+        for row in perf_rows:
+            assert vm_item_metadata(row).get("engine") == "performance", (
+                "filter[engine]=performance must not return cost-engine rows"
+            )
+
+        cost_row = self._find_vm_row_by_engine(cost_rows, vm_name, namespace, "cost")
+        perf_row = self._find_vm_row_by_engine(perf_rows, vm_name, namespace, "performance")
         assert cost_row, f"No cost-engine recommendation for {vm_name}/{namespace}"
         assert perf_row, f"No performance-engine recommendation for {vm_name}/{namespace}"
 
