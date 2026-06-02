@@ -634,10 +634,21 @@ class TestContainerDetailE2E:
         container_auth: dict,
         http_session: requests.Session,
     ):
+        tag_key = "environment"
+        tag_value = "production"
+        unfiltered_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"limit": 100},
+            timeout=60,
+        )
+        assert unfiltered_resp.status_code == 200, unfiltered_resp.text
+        unfiltered_count = unfiltered_resp.json().get("meta", {}).get("count", 0)
+
         resp = http_session.get(
             get_recommendations_endpoint(ros_api_url),
             headers=container_auth,
-            params={"filter[tag:environment]": "production", "limit": 5},
+            params={f"filter[tag:{tag_key}]": tag_value, "limit": 100},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
@@ -646,8 +657,16 @@ class TestContainerDetailE2E:
         if body.get("meta", {}).get("count", 0) == 0:
             warnings = (body.get("meta") or {}).get("warnings") or []
             if warnings:
-                pytest.skip("No containers with tag environment=production in cluster")
+                pytest.skip(f"No containers with tag {tag_key}={tag_value} in cluster")
             pytest.skip("No tagged container data; ROS_TAGS_ENABLED may be off")
+
+        filtered_count = body.get("meta", {}).get("count", 0)
+        assert filtered_count > 0
+        assert filtered_count <= unfiltered_count, (
+            "Tag filter should narrow or match the unfiltered result set"
+        )
+        items = body.get("data") or []
+        assert items, "Expected data rows when meta.count > 0"
 
     def test_container_order_by(
         self,
