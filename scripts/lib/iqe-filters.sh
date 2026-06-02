@@ -88,7 +88,9 @@ apply_profile() {
 #   SKIP_*_TESTS - Boolean to enable/disable the skip (default: true for blocked, false for optional)
 #   FILTER_* - Pytest -k expression to match tests in this group
 
-# --- GPU/MIG Tests ---
+# --- GPU/MIG Tests (COST-7179 — resolved by koku migration 0344) ---
+# Default off: re-enable skip with SKIP_GPU_TESTS=true if cluster lacks migration 0344
+# ~90 tests affected
 SKIP_GPU_TESTS="${SKIP_GPU_TESTS:-false}"
 FILTER_GPU="ai_workloads or mig_workloads or distro or test_api_ocp_gpu or test_api_gpu or test_api_cost_model_ocp_gpu or test_api_cost_model_ocp_cost_gpu or test_api_ocp_resource_types_gpu or test_api_ocp_mig"
 
