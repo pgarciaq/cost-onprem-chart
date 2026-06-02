@@ -296,7 +296,129 @@ class TestContainerDetailE2E:
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
-        _assert_paginated_envelope(resp.json())
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        for item in body.get("data") or []:
+            assert item.get("idle_state") == "idle"
+
+    def test_container_keyset_pagination(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        page1_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"limit": 1},
+            timeout=60,
+        )
+        assert page1_resp.status_code == 200, page1_resp.text
+        page1 = page1_resp.json()
+        _assert_paginated_envelope(page1)
+        meta = page1.get("meta") or {}
+        if not meta.get("has_next") or not meta.get("next_cursor"):
+            pytest.skip("Insufficient data for keyset pagination (need has_next and next_cursor)")
+
+        page2_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"limit": 1, "after": meta["next_cursor"]},
+            timeout=60,
+        )
+        assert page2_resp.status_code == 200, page2_resp.text
+        page2 = page2_resp.json()
+        _assert_paginated_envelope(page2)
+        ids1 = {item.get("id") for item in page1.get("data") or []}
+        ids2 = {item.get("id") for item in page2.get("data") or []}
+        assert ids1.isdisjoint(ids2), "Keyset page 2 must not repeat page 1 rows"
+
+    def test_container_filter_tag(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[tag:environment]": "production", "limit": 5},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        if body.get("meta", {}).get("count", 0) == 0:
+            warnings = (body.get("meta") or {}).get("warnings") or []
+            if warnings:
+                pytest.skip("No containers with tag environment=production in cluster")
+            pytest.skip("No tagged container data; ROS_TAGS_ENABLED may be off")
+
+    def test_container_order_by(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"order_by": "last_reported", "order_how": "desc", "limit": 10},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        if len(items) < 2:
+            pytest.skip("Need at least 2 containers to verify sort order")
+        timestamps = [item.get("last_reported") for item in items if item.get("last_reported")]
+        if len(timestamps) < 2:
+            pytest.skip("Containers missing last_reported for sort verification")
+        assert timestamps == sorted(timestamps, reverse=True)
+
+    def test_container_savings_shape(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        list_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"limit": 20},
+            timeout=60,
+        )
+        assert list_resp.status_code == 200, list_resp.text
+        items = list_resp.json().get("data") or []
+        if not items:
+            pytest.skip("No container recommendations in cluster")
+
+        savings_item = next(
+            (item for item in items if item.get("estimated_monthly_savings")),
+            None,
+        )
+        if savings_item is None:
+            pytest.skip("No containers with estimated_monthly_savings in sample")
+
+        savings = savings_item["estimated_monthly_savings"]
+        assert isinstance(savings, dict)
+        assert "value" in savings
+        assert "units" in savings
+        assert savings["units"] in ("USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CHF", "NZD")
+
+        rec_id = savings_item.get("id")
+        if rec_id:
+            detail_resp = http_session.get(
+                _container_detail_url(ros_api_url, rec_id),
+                headers=container_auth,
+                timeout=60,
+            )
+            assert detail_resp.status_code == 200, detail_resp.text
+            detail_savings = detail_resp.json().get("estimated_monthly_savings")
+            if detail_savings:
+                assert "value" in detail_savings
+                assert "units" in detail_savings
 
     def test_container_notification_codes_catalog(
         self,
