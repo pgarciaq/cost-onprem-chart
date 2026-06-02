@@ -438,6 +438,41 @@ class TestClusterQuotaRecommendationsE2E:
         utils = [max_util(i) for i in items]
         assert utils == sorted(utils, reverse=True)
 
+    def test_cluster_quota_group_by_cluster(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"group_by[cluster]": "*", "limit": 20},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        if body.get("meta", {}).get("count", 0) == 0:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        for item in body.get("data") or []:
+            assert item.get("cluster_uuid"), "group_by row must include cluster_uuid"
+            assert item.get("count", 0) >= 1, "group_by row must include aggregated count"
+            if item.get("estimated_savings") is not None:
+                assert_structured_savings(item["estimated_savings"])
+            capacity_freed = item.get("capacity_freed")
+            if capacity_freed is not None:
+                assert isinstance(capacity_freed, dict)
+                for key in (
+                    "cpu_cores_freed",
+                    "memory_bytes",
+                    "storage_request_bytes",
+                    "pods_freed",
+                ):
+                    if key in capacity_freed:
+                        assert isinstance(capacity_freed[key], int)
+
     def test_cluster_quota_detail_endpoint(
         self,
         ros_api_url: str,
