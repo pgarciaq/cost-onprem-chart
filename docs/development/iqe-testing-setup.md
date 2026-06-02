@@ -8,6 +8,12 @@ There are two ways to run IQE tests:
 1. **Containerized** (`run-iqe-tests.sh`) - Runs tests in a container on the cluster
 2. **Local** (`run-iqe-tests-local.sh`) - Runs tests directly from local repositories
 
+### ROS recommendation requirement markers
+
+ROS recommendation IQE tests use requirement markers such as `cost_ros_ocp`, `cost_ros_ocp_quota`, and `cost_ros_ocp_nodes`. Plugin declarations live in `iqe-cost-management-plugin/iqe_cost_management/conf/requirements.yaml`. Requirement-filtered CI jobs also need matching IDs in **app-interface**.
+
+See [IQE requirement registration (ros-ocp-backend)](https://github.com/project-koku/ros-ocp-backend/blob/main/docs/testing/iqe-requirements-registration.md) for the full matrix, which types share `cost_ros_ocp`, and the app-interface MR checklist.
+
 ## Prerequisites
 
 ### 1. Red Hat Network Access
