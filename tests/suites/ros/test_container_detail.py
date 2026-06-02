@@ -50,6 +50,47 @@ def _engine_cpu_memory(engine: dict[str, Any]) -> tuple[Optional[float], Optiona
     return cpu.get("amount"), memory.get("amount")
 
 
+def _first_container_item(
+    ros_api_url: str,
+    container_auth: dict,
+    http_session: requests.Session,
+) -> dict[str, Any]:
+    resp = http_session.get(
+        get_recommendations_endpoint(ros_api_url),
+        headers=container_auth,
+        params={"limit": 1},
+        timeout=60,
+    )
+    assert resp.status_code == 200, resp.text
+    items = resp.json().get("data") or []
+    if not items:
+        pytest.skip("No container recommendations in cluster")
+    return items[0]
+
+
+def _assert_filtered_items_match(
+    items: list[dict[str, Any]],
+    item_field: str,
+    expected: str,
+    *,
+    case_insensitive: bool = False,
+) -> None:
+    if not items:
+        return
+    for item in items:
+        actual = item.get(item_field)
+        if actual is None:
+            pytest.fail(f"Filtered row missing {item_field!r}: {item}")
+        if case_insensitive:
+            assert str(actual).lower() == str(expected).lower(), (
+                f"Expected {item_field}={expected!r}, got {actual!r}"
+            )
+        else:
+            assert actual == expected, (
+                f"Expected {item_field}={expected!r}, got {actual!r}"
+            )
+
+
 @pytest.fixture
 def container_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -252,6 +293,80 @@ class TestContainerDetailE2E:
                     assert memory >= 0
                     return
         pytest.skip("No engine with CPU and memory recommendation values in sample")
+
+    @pytest.mark.parametrize(
+        "filter_param,item_field,case_insensitive",
+        [
+            ("filter[project]", "project", False),
+            ("filter[workload]", "workload", False),
+            ("filter[container]", "container", False),
+            ("filter[workload_type]", "workload_type", True),
+        ],
+    )
+    def test_container_list_filter_results_match(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+        filter_param: str,
+        item_field: str,
+        case_insensitive: bool,
+    ):
+        """Filtered list rows match the applied filter value when data is returned."""
+        sample = _first_container_item(ros_api_url, container_auth, http_session)
+        expected = sample.get(item_field)
+        if not expected:
+            pytest.skip(f"Sample container missing {item_field} for filter validation")
+
+        filter_value = str(expected).lower() if case_insensitive else expected
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={filter_param: filter_value, "limit": 50},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        if not items:
+            pytest.skip(
+                f"No rows returned for {filter_param}={filter_value!r}; "
+                "insufficient matching data"
+            )
+        _assert_filtered_items_match(
+            items, item_field, filter_value, case_insensitive=case_insensitive
+        )
+
+    def test_container_list_filter_cluster_results_match(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[cluster] returns rows for the same cluster UUID when data exists."""
+        sample = _first_container_item(ros_api_url, container_auth, http_session)
+        cluster_uuid = sample.get("cluster_uuid")
+        if not cluster_uuid:
+            pytest.skip("Sample container missing cluster_uuid")
+
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={"filter[cluster]": cluster_uuid, "limit": 50},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        if not items:
+            pytest.skip(f"No rows returned for filter[cluster]={cluster_uuid}")
+
+        for item in items:
+            assert item.get("cluster_uuid") == cluster_uuid, (
+                f"Expected cluster_uuid={cluster_uuid!r}, got {item.get('cluster_uuid')!r}"
+            )
 
     def test_container_list_filter_engine_cost(
         self,
