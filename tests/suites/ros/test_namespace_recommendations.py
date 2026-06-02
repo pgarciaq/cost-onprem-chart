@@ -197,6 +197,24 @@ class TestNamespaceRecommendationsE2E:
         assert resp.status_code == 200, resp.text
         assert "data" in resp.json()
 
+    def test_namespace_filter_engine_omission(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[engine] returns only the selected engine under recommendation_engines."""
+        from suites.ros.test_container_detail import _assert_container_list_engine_filter
+
+        resp = _fetch_namespaces(
+            http_session,
+            ros_api_url,
+            namespace_auth,
+            {"filter[engine]": "cost", "limit": 5},
+        )
+        assert resp.status_code == 200, resp.text
+        _assert_container_list_engine_filter(resp.json(), "cost")
+
     def test_namespace_filter_stale_false(
         self,
         ros_api_url: str,

@@ -149,6 +149,24 @@ class TestRecommendationQualityE2E:
         for row in filtered.json().get("data") or []:
             assert row.get("container_name") == container
 
+    def test_quality_filter_engine(
+        self,
+        ros_api_url: str,
+        quality_auth: dict,
+        http_session: requests.Session,
+    ):
+        for engine in ("cost", "performance"):
+            resp = _fetch_quality(
+                http_session,
+                ros_api_url,
+                quality_auth,
+                {"filter[engine]": engine, "limit": 5},
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert "meta" in body
+            assert "data" in body
+
     def test_quality_csv_export(
         self,
         ros_api_url: str,
