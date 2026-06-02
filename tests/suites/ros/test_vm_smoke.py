@@ -120,6 +120,15 @@ class TestVMSmokeContract:
             )
             skip_if_vm_plugin_disabled(resp)
             assert resp.status_code == 200, resp.text
+            items = resp.json().get("data") or []
+            if not items:
+                continue
+            for row in items:
+                meta = row.get("metadata") or {}
+                assert meta.get("engine") == engine, (
+                    f"filter[engine]={engine} should return rows for that engine only, "
+                    f"got metadata.engine={meta.get('engine')!r}"
+                )
 
     def test_vm_confidence_filter_returns_200(
         self,
