@@ -93,6 +93,8 @@ class TestQuotaRecommendationsE2E:
         assert item.get("cluster_uuid"), "quota row must include cluster_uuid"
         assert item.get("recommendation_type") in VALID_QUOTA_RECOMMENDATION_TYPES
         assert item.get("risk_level") in VALID_QUOTA_RISK_LEVELS
+        if item.get("quota_name") is not None:
+            assert isinstance(item["quota_name"], str), "quota_name must be a string"
 
         for block_name in ("quota_hard", "quota_used", "quota_recommended"):
             block = item.get(block_name)
@@ -104,9 +106,28 @@ class TestQuotaRecommendationsE2E:
                 "cpu_limit_millicores",
                 "memory_request_bytes",
                 "memory_limit_bytes",
+                "storage_request_bytes",
+                "pods",
             ):
                 if key in block:
                     assert isinstance(block[key], int), f"{block_name}.{key} must be int"
+
+        capacity_freed = item.get("capacity_freed")
+        if capacity_freed is not None:
+            assert isinstance(capacity_freed, dict), "capacity_freed must be an object"
+            for key in (
+                "cpu_millicores",
+                "memory_bytes",
+                "storage_request_bytes",
+                "pods_freed",
+            ):
+                if key in capacity_freed:
+                    assert isinstance(capacity_freed[key], int), (
+                        f"capacity_freed.{key} must be int"
+                    )
+                    assert capacity_freed[key] >= 0, (
+                        f"capacity_freed.{key} must be non-negative"
+                    )
 
     def test_quota_filter_by_cluster(
         self,
@@ -191,6 +212,123 @@ class TestQuotaRecommendationsE2E:
 
         if not saw_savings:
             pytest.skip("No estimated_savings on tighten quota rows")
+
+    def test_quota_capacity_freed_on_tighten(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 50})
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No quota recommendation data in cluster")
+
+        tighten_rows = [
+            item for item in items if item.get("recommendation_type") == "tighten"
+        ]
+        if not tighten_rows:
+            pytest.skip("No tighten quota rows with capacity_freed data")
+
+        saw_capacity = False
+        for item in tighten_rows:
+            capacity_freed = item.get("capacity_freed")
+            if not capacity_freed:
+                continue
+            saw_capacity = True
+            assert isinstance(capacity_freed.get("cpu_millicores"), int)
+            assert isinstance(capacity_freed.get("memory_bytes"), int)
+            assert capacity_freed["cpu_millicores"] >= 0
+            assert capacity_freed["memory_bytes"] >= 0
+            if "storage_request_bytes" in capacity_freed:
+                assert isinstance(capacity_freed["storage_request_bytes"], int)
+                assert capacity_freed["storage_request_bytes"] >= 0
+            if "pods_freed" in capacity_freed:
+                assert isinstance(capacity_freed["pods_freed"], int)
+                assert capacity_freed["pods_freed"] >= 0
+
+        if not saw_capacity:
+            pytest.skip("No capacity_freed on tighten quota rows")
+
+    def test_quota_filter_by_quota_name(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 20})
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No quota recommendation data in cluster")
+
+        quota_name = None
+        for item in items:
+            name = item.get("quota_name")
+            if name:
+                quota_name = name
+                break
+        if not quota_name:
+            pytest.skip("No quota rows with quota_name populated")
+
+        filtered = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[quota_name]": quota_name, "limit": 50},
+        )
+        assert filtered.status_code == 200, filtered.text
+        for item in filtered.json().get("data") or []:
+            assert item.get("quota_name") == quota_name
+
+    def test_quota_filter_resource_quota_name_alias(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 20})
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No quota recommendation data in cluster")
+
+        quota_name = None
+        for item in items:
+            name = item.get("quota_name")
+            if name:
+                quota_name = name
+                break
+        if not quota_name:
+            pytest.skip("No quota rows with quota_name populated")
+
+        by_name = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[quota_name]": quota_name, "limit": 50},
+        )
+        by_alias = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[resource_quota_name]": quota_name, "limit": 50},
+        )
+        assert by_name.status_code == 200, by_name.text
+        assert by_alias.status_code == 200, by_alias.text
+        page1_keys = {
+            (i["cluster_uuid"], i["namespace"], i.get("quota_name", ""))
+            for i in by_name.json().get("data") or []
+        }
+        page2_keys = {
+            (i["cluster_uuid"], i["namespace"], i.get("quota_name", ""))
+            for i in by_alias.json().get("data") or []
+        }
+        assert page1_keys == page2_keys
 
     def test_quota_filter_empty_for_unknown_cluster(
         self,
