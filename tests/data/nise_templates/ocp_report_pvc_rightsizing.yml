@@ -1,0 +1,88 @@
+---
+# Deterministic PVC right-sizing scenarios for ROS E2E / chart tests.
+# Use with: nise report ocp --static-report-file ocp_report_pvc_rightsizing.yml
+#           --ocp-cluster-id <CLUSTER_UUID> -w --ros-ocp-info
+#
+# Scenarios (namespace pvc-rightsizing):
+#   pvc-oversized   — 100Gi capacity, ~5Gi usage (~5% utilization)
+#   pvc-near-full   — 10Gi capacity, ~9.5Gi usage (~95% utilization)
+#   pvc-orphaned    — 20Gi capacity, zero usage (unmounted workload pattern)
+#   pvc-healthy     — 50Gi capacity, ~30Gi usage (~60% utilization)
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      nodes:
+        - node:
+          node_name: pvc-rs-node
+          cpu_cores: 8
+          memory_gig: 16
+          resource_id: 90001001
+          namespaces:
+            pvc-rightsizing:
+              namespace_labels: app:pvc-rightsizing
+              pods:
+                - pod:
+                  pod_name: pvc-rs-app
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.5
+                  mem_usage_gig:
+                    full_period: 1
+                  labels: label_app:pvc-rs
+              volumes:
+                - volume:
+                  volume_name: vol-oversized
+                  storage_class: gp3-csi
+                  volume_request_gig: 100
+                  labels: label_scenario:oversized
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: pvc-oversized
+                      pod_name: pvc-rs-app
+                      labels: label_scenario:oversized
+                      capacity_gig: 100
+                      volume_claim_usage_gig:
+                        full_period: 5
+                - volume:
+                  volume_name: vol-near-full
+                  storage_class: gp3-csi
+                  volume_request_gig: 10
+                  labels: label_scenario:near_full
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: pvc-near-full
+                      pod_name: pvc-rs-app
+                      labels: label_scenario:near_full
+                      capacity_gig: 10
+                      volume_claim_usage_gig:
+                        full_period: 9.5
+                - volume:
+                  volume_name: vol-orphaned
+                  storage_class: ocs-storagecluster-ceph-rbd
+                  volume_request_gig: 20
+                  labels: label_scenario:orphaned
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: pvc-orphaned
+                      pod_name: pvc-rs-app
+                      labels: label_scenario:orphaned
+                      capacity_gig: 20
+                      volume_claim_usage_gig:
+                        full_period: 0
+                - volume:
+                  volume_name: vol-healthy
+                  storage_class: gp2
+                  volume_request_gig: 50
+                  labels: label_scenario:healthy
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: pvc-healthy
+                      pod_name: pvc-rs-app
+                      labels: label_scenario:healthy
+                      capacity_gig: 50
+                      volume_claim_usage_gig:
+                        full_period: 30

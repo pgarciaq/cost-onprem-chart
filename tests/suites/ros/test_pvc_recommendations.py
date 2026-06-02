@@ -19,6 +19,13 @@ def _pvcs_url(ros_api_url: str) -> str:
     )
 
 
+def _pvc_detail_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/pvcs/detail"
+    )
+
+
 def _fetch_pvcs(
     session: requests.Session,
     ros_api_url: str,
@@ -31,6 +38,40 @@ def _fetch_pvcs(
         params=params or {},
         timeout=60,
     )
+
+
+def _fetch_pvc_detail(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+    params: dict[str, str],
+) -> requests.Response:
+    return session.get(
+        _pvc_detail_url(ros_api_url),
+        headers=auth,
+        params=params,
+        timeout=60,
+    )
+
+
+def _skip_if_no_pvc_plugin(resp: requests.Response) -> None:
+    if resp.status_code == 404:
+        pytest.skip("PVC recommendations plugin not enabled (404 on /pvcs)")
+
+
+def _first_pvc_item(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+    params: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    resp = _fetch_pvcs(session, ros_api_url, auth, params or {"limit": 5})
+    _skip_if_no_pvc_plugin(resp)
+    assert resp.status_code == 200, resp.text
+    items = resp.json().get("data") or []
+    if not items:
+        pytest.skip("No PVC recommendation data in cluster")
+    return items[0]
 
 
 @pytest.fixture
@@ -197,3 +238,86 @@ class TestPVCRecommendationsE2E:
             for i in second.json()["data"]
         }
         assert page1_keys.isdisjoint(page2_keys)
+
+    def test_pvc_detail_returns_200_with_terms(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        item = _first_pvc_item(http_session, ros_api_url, pvc_auth)
+        detail = _fetch_pvc_detail(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {
+                "cluster_uuid": item["cluster_uuid"],
+                "namespace": item["namespace"],
+                "persistentvolumeclaim": item["persistentvolumeclaim"],
+            },
+        )
+        if detail.status_code == 404:
+            pytest.skip("PVC recommendations plugin not enabled (404 on /pvcs/detail)")
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert body["cluster_uuid"] == item["cluster_uuid"]
+        assert body["namespace"] == item["namespace"]
+        assert body["persistentvolumeclaim"] == item["persistentvolumeclaim"]
+        assert "terms" in body
+        assert isinstance(body["terms"], dict)
+        assert body["terms"], "detail response must include at least one term"
+        for term_name, term_row in body["terms"].items():
+            assert term_name in ("short", "medium", "long")
+            assert term_row.get("recommendation_type")
+            assert "usage_ratio" in term_row
+            assert "capacity_bytes" in term_row
+
+    def test_pvc_filter_by_storageclass(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        item = _first_pvc_item(http_session, ros_api_url, pvc_auth)
+        storageclass = item.get("storageclass")
+        if not storageclass:
+            pytest.skip("PVC row has no storageclass — cannot verify filter[storageclass]")
+
+        filtered = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {"filter[storageclass]": storageclass, "limit": 50},
+        )
+        _skip_if_no_pvc_plugin(filtered)
+        assert filtered.status_code == 200, filtered.text
+        for row in filtered.json().get("data") or []:
+            assert row.get("storageclass") == storageclass
+
+    def test_pvc_filter_by_term(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        _first_pvc_item(http_session, ros_api_url, pvc_auth)
+
+        counts: dict[str, int] = {}
+        for term in ("short", "medium", "long"):
+            resp = _fetch_pvcs(
+                http_session,
+                ros_api_url,
+                pvc_auth,
+                {"filter[term]": term, "limit": 50},
+            )
+            _skip_if_no_pvc_plugin(resp)
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            counts[term] = body.get("meta", {}).get("count", 0)
+            for row in body.get("data") or []:
+                assert row.get("term") == term, (
+                    f"filter[term]={term} returned row with term={row.get('term')!r}"
+                )
+
+        if sum(counts.values()) == 0:
+            pytest.skip("No PVC rows for any term filter")
