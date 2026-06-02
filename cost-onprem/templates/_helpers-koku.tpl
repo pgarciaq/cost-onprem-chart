@@ -398,6 +398,15 @@ Common environment variables for Koku API and Celery
   value: "/api/rbac/v1/access/"
 - name: RBAC_SERVICE_PROTOCOL
   value: "http"
+# ROS-OCP savings recalculation callback (cost model worker → ros-api)
+- name: ROS_OCP_BACKEND_URL
+  value: {{ .Values.costManagement.rosIntegration.ocpBackendUrl | default (printf "http://%s-ros-api:%v" (include "cost-onprem.fullname" .) .Values.ros.api.port) | quote }}
+{{- if .Values.costManagement.rosIntegration.apiHost }}
+- name: ROS_API_HOST
+  value: {{ .Values.costManagement.rosIntegration.apiHost | quote }}
+- name: ROS_API_PORT
+  value: {{ .Values.costManagement.rosIntegration.apiPort | default .Values.ros.api.port | quote }}
+{{- end }}
 {{- end -}}
 
 {{/*

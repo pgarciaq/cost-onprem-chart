@@ -97,6 +97,8 @@ spec:
               value: "http://{{ include "cost-onprem.koku.masu.name" . }}:{{ include "cost-onprem.koku.api.port" . }}"
             - name: ROS_SAVINGS_ESTIMATES_ENABLED
               value: {{ .Values.ros.api.savingsEstimatesEnabled | default .Values.ros.processor.savingsEstimatesEnabled | default true | quote }}
+            - name: ROS_SAVINGS_RECALCULATION_ENABLED
+              value: {{ .Values.ros.api.savingsRecalculationEnabled | default true | quote }}
             - name: ROS_BUSINESS_HOURS_ENABLED
               value: {{ .Values.ros.api.businessHoursEnabled | quote }}
             - name: ROS_BUSINESS_HOURS_RESHIP_FORWARD_ONLY_FALLBACK

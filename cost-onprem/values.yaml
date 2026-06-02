@@ -71,6 +71,8 @@ ros:
     businessHoursEnabled: true
     # When false, skip Masu effective-rates fetches for GPU savings on API responses.
     savingsEstimatesEnabled: true
+    # When false, reject POST /internal/recalculate-savings from Koku after cost model updates.
+    savingsRecalculationEnabled: true
     # When true, exhausted masu reship retries transition to forward-only BH recommendations.
     reshipForwardOnlyFallback: false
 
@@ -232,6 +234,14 @@ costManagement:
   storage:
     bucketName: "koku-bucket"
     rosBucketName: "ros-data"
+
+  # Koku → ROS callbacks (savings recalculation after cost model updates).
+  # ocpBackendUrl: override full base URL; empty uses http://<release>-ros-api:<ros.api.port>
+  # apiHost/apiPort: optional; when apiHost is set, Koku uses ROS_API_HOST instead of ocpBackendUrl
+  rosIntegration:
+    ocpBackendUrl: ""
+    apiHost: ""
+    apiPort: ""
 
   # ---------------------------------------------------------------------------
   # Koku API Configuration
