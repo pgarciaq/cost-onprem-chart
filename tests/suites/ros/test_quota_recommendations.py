@@ -442,6 +442,31 @@ class TestQuotaRecommendationsE2E:
             assert item.get("cluster_uuid"), "group_by row must include cluster_uuid"
             assert item.get("count", 0) >= 1, "group_by row must include aggregated count"
 
+    def test_quota_group_by_project(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"group_by[project]": "*", "limit": 20},
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "meta" in body
+        assert "data" in body
+        assert isinstance(body["data"], list)
+        if body.get("meta", {}).get("count", 0) == 0:
+            pytest.skip("No quota recommendation data in cluster")
+
+        for item in body.get("data") or []:
+            assert item.get("namespace"), "group_by row must include namespace"
+            assert item.get("count", 0) >= 1, "group_by row must include aggregated count"
+
     def test_quota_detail_endpoint(
         self,
         ros_api_url: str,
