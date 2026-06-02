@@ -31,6 +31,35 @@ _NODE_DEFAULTS = {
     "underutil_threshold": 0.30,
 }
 
+_NAMESPACE_DEFAULTS = {
+    "cpu_cost_percentile": 0.60,
+}
+
+_GPU_DEFAULTS = {
+    "idle_threshold": 0.02,
+}
+
+_PVC_DEFAULTS = {
+    "oversized_threshold": 0.20,
+}
+
+# recommendation_type -> (PUT body, field to assert on GET, default after DELETE)
+_THRESHOLD_PUT_CASES: list[tuple[str, dict[str, float], str, float]] = [
+    ("container", {"cpu_cost_percentile": 0.72}, "cpu_cost_percentile", 0.72),
+    ("node", {"cost_target_utilization": 0.75}, "cost_target_utilization", 0.75),
+    ("namespace", {"cpu_cost_percentile": 0.72}, "cpu_cost_percentile", 0.72),
+    ("gpu", {"idle_threshold": 0.05}, "idle_threshold", 0.05),
+    ("pvc", {"oversized_threshold": 0.25}, "oversized_threshold", 0.25),
+]
+
+_THRESHOLD_DELETE_CASES: list[tuple[str, dict[str, float], str, float]] = [
+    ("container", {"min_margin": 1.25}, "min_margin", _CONTAINER_DEFAULTS["min_margin"]),
+    ("node", {"cost_target_utilization": 0.75}, "cost_target_utilization", _NODE_DEFAULTS["cost_target_utilization"]),
+    ("namespace", {"cpu_cost_percentile": 0.72}, "cpu_cost_percentile", _NAMESPACE_DEFAULTS["cpu_cost_percentile"]),
+    ("gpu", {"idle_threshold": 0.05}, "idle_threshold", _GPU_DEFAULTS["idle_threshold"]),
+    ("pvc", {"oversized_threshold": 0.25}, "oversized_threshold", _PVC_DEFAULTS["oversized_threshold"]),
+]
+
 # Env var name → JSON field name (container thresholds).
 _CONTAINER_ENV_LOCKS = {
     "ROS_CONTAINER_CPU_COST_PERCENTILE": "cpu_cost_percentile",
@@ -281,57 +310,37 @@ class TestThresholdSettingsE2E:
         assert resp.status_code == 400, resp.text
         assert "recommendation_type" in resp.json().get("message", "").lower()
 
-    def test_threshold_put_container_persists(
+    @pytest.mark.parametrize(
+        "recommendation_type,custom,field,expected",
+        _THRESHOLD_PUT_CASES,
+    )
+    def test_threshold_put_persists(
         self,
+        recommendation_type: str,
+        custom: dict[str, float],
+        field: str,
+        expected: float,
         ros_api_url: str,
         threshold_auth: dict,
         http_session: requests.Session,
         keycloak_config,
         cluster_config,
     ):
-        custom = {"cpu_cost_percentile": 0.72}
         try:
             put_resp = _put_thresholds(
-                http_session, ros_api_url, threshold_auth, "container", custom
+                http_session, ros_api_url, threshold_auth, recommendation_type, custom
             )
             assert put_resp.status_code == 200, put_resp.text
-            assert put_resp.json()["cpu_cost_percentile"] == pytest.approx(0.72, rel=1e-6)
+            assert put_resp.json()[field] == pytest.approx(expected, rel=1e-6)
 
             get_resp = _get_thresholds(
-                http_session, ros_api_url, threshold_auth, "container"
+                http_session, ros_api_url, threshold_auth, recommendation_type
             )
             assert get_resp.status_code == 200, get_resp.text
-            assert get_resp.json()["cpu_cost_percentile"] == pytest.approx(0.72, rel=1e-6)
+            assert get_resp.json()[field] == pytest.approx(expected, rel=1e-6)
         finally:
             auth = _fresh_auth(keycloak_config, cluster_config, http_session)
-            _delete_thresholds(http_session, ros_api_url, auth, "container")
-
-    def test_threshold_put_node_persists(
-        self,
-        ros_api_url: str,
-        threshold_auth: dict,
-        http_session: requests.Session,
-        keycloak_config,
-        cluster_config,
-    ):
-        custom = {"cost_target_utilization": 0.75}
-        try:
-            put_resp = _put_thresholds(
-                http_session, ros_api_url, threshold_auth, "node", custom
-            )
-            assert put_resp.status_code == 200, put_resp.text
-            assert put_resp.json()["cost_target_utilization"] == pytest.approx(
-                0.75, rel=1e-6
-            )
-
-            get_resp = _get_thresholds(http_session, ros_api_url, threshold_auth, "node")
-            assert get_resp.status_code == 200, get_resp.text
-            assert get_resp.json()["cost_target_utilization"] == pytest.approx(
-                0.75, rel=1e-6
-            )
-        finally:
-            auth = _fresh_auth(keycloak_config, cluster_config, http_session)
-            _delete_thresholds(http_session, ros_api_url, auth, "node")
+            _delete_thresholds(http_session, ros_api_url, auth, recommendation_type)
 
     def test_threshold_put_validation_rejects_out_of_range(
         self,
@@ -370,8 +379,16 @@ class TestThresholdSettingsE2E:
         assert body.get("status") == "error"
         assert "validation_errors" in body
 
+    @pytest.mark.parametrize(
+        "recommendation_type,custom,field,default_value",
+        _THRESHOLD_DELETE_CASES,
+    )
     def test_threshold_delete_resets_to_defaults(
         self,
+        recommendation_type: str,
+        custom: dict[str, float],
+        field: str,
+        default_value: float,
         ros_api_url: str,
         threshold_auth: dict,
         http_session: requests.Session,
@@ -383,30 +400,29 @@ class TestThresholdSettingsE2E:
                 http_session,
                 ros_api_url,
                 threshold_auth,
-                "container",
-                {"min_margin": 1.25},
+                recommendation_type,
+                custom,
             )
             assert put_resp.status_code == 200, put_resp.text
 
             del_resp = _delete_thresholds(
-                http_session, ros_api_url, threshold_auth, "container"
+                http_session, ros_api_url, threshold_auth, recommendation_type
             )
             assert del_resp.status_code in (200, 204), del_resp.text
 
             get_resp = _get_thresholds(
-                http_session, ros_api_url, threshold_auth, "container"
+                http_session, ros_api_url, threshold_auth, recommendation_type
             )
             assert get_resp.status_code == 200, get_resp.text
-            body = get_resp.json()
-            assert body["min_margin"] == pytest.approx(
-                _CONTAINER_DEFAULTS["min_margin"], rel=1e-6
-            )
-            assert body["cpu_cost_percentile"] == pytest.approx(
-                _CONTAINER_DEFAULTS["cpu_cost_percentile"], rel=1e-6
-            )
+            assert get_resp.json()[field] == pytest.approx(default_value, rel=1e-6)
+            if recommendation_type == "container":
+                body = get_resp.json()
+                assert body["cpu_cost_percentile"] == pytest.approx(
+                    _CONTAINER_DEFAULTS["cpu_cost_percentile"], rel=1e-6
+                )
         finally:
             auth = _fresh_auth(keycloak_config, cluster_config, http_session)
-            _delete_thresholds(http_session, ros_api_url, auth, "container")
+            _delete_thresholds(http_session, ros_api_url, auth, recommendation_type)
 
     @pytest.mark.timeout(120)
     def test_threshold_put_triggers_recalculation(

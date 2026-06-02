@@ -14,6 +14,8 @@ import requests
 
 from suites.ros.test_recommendations import get_fresh_token
 
+_RECOMMENDATION_TYPES = ("container", "namespace", "node", "gpu", "pvc")
+
 _TERM_NAMES = ("short", "medium", "long")
 
 _DEFAULT_TERMS_BY_NAME = {
@@ -112,30 +114,26 @@ def term_settings_auth(keycloak_config, cluster_config, http_session):
 @pytest.mark.ros
 @pytest.mark.component
 class TestTermSettingsE2E:
-    """Term settings CRUD for container and node recommendation types."""
+    """Term settings CRUD for all recommendation types."""
 
-    def test_term_settings_get_defaults_container(
+    @pytest.mark.parametrize("recommendation_type", _RECOMMENDATION_TYPES)
+    def test_term_settings_get_defaults(
         self,
+        recommendation_type: str,
         ros_api_url: str,
         term_settings_auth: dict,
         http_session: requests.Session,
     ):
-        resp = _get_terms(http_session, ros_api_url, term_settings_auth, "container")
+        resp = _get_terms(
+            http_session, ros_api_url, term_settings_auth, recommendation_type
+        )
         assert resp.status_code == 200, resp.text
-        _assert_default_terms(resp.json(), "container")
+        _assert_default_terms(resp.json(), recommendation_type)
 
-    def test_term_settings_get_defaults_node(
+    @pytest.mark.parametrize("recommendation_type", _RECOMMENDATION_TYPES)
+    def test_term_settings_put_persists(
         self,
-        ros_api_url: str,
-        term_settings_auth: dict,
-        http_session: requests.Session,
-    ):
-        resp = _get_terms(http_session, ros_api_url, term_settings_auth, "node")
-        assert resp.status_code == 200, resp.text
-        _assert_default_terms(resp.json(), "node")
-
-    def test_term_settings_put_persists_container(
-        self,
+        recommendation_type: str,
         ros_api_url: str,
         term_settings_auth: dict,
         http_session: requests.Session,
@@ -147,19 +145,19 @@ class TestTermSettingsE2E:
                 http_session,
                 ros_api_url,
                 term_settings_auth,
-                "container",
+                recommendation_type,
                 _CUSTOM_TERMS_PAYLOAD,
             )
             assert put_resp.status_code == 200, put_resp.text
             put_body = put_resp.json()
-            assert put_body.get("recommendation_type") == "container"
+            assert put_body.get("recommendation_type") == recommendation_type
             by_name = _terms_by_name(put_body)
             assert by_name["short"]["window_days"] == 3
             assert by_name["medium"]["window_days"] == 14
             assert by_name["long"]["window_days"] == 30
 
             get_resp = _get_terms(
-                http_session, ros_api_url, term_settings_auth, "container"
+                http_session, ros_api_url, term_settings_auth, recommendation_type
             )
             assert get_resp.status_code == 200, get_resp.text
             get_by_name = _terms_by_name(get_resp.json())
@@ -169,36 +167,47 @@ class TestTermSettingsE2E:
         finally:
             auth = get_fresh_token(keycloak_config, cluster_config, http_session)
             if auth:
-                _delete_terms(http_session, ros_api_url, auth, "container")
+                _delete_terms(
+                    http_session, ros_api_url, auth, recommendation_type
+                )
 
+    @pytest.mark.parametrize("recommendation_type", _RECOMMENDATION_TYPES)
     def test_term_settings_delete_resets_defaults(
         self,
+        recommendation_type: str,
         ros_api_url: str,
         term_settings_auth: dict,
         http_session: requests.Session,
         keycloak_config,
         cluster_config,
     ):
-        put_resp = _put_terms(
-            http_session,
-            ros_api_url,
-            term_settings_auth,
-            "container",
-            _CUSTOM_TERMS_PAYLOAD,
-        )
-        assert put_resp.status_code == 200, put_resp.text
+        try:
+            put_resp = _put_terms(
+                http_session,
+                ros_api_url,
+                term_settings_auth,
+                recommendation_type,
+                _CUSTOM_TERMS_PAYLOAD,
+            )
+            assert put_resp.status_code == 200, put_resp.text
 
-        del_resp = _delete_terms(
-            http_session, ros_api_url, term_settings_auth, "container"
-        )
-        assert del_resp.status_code == 200, del_resp.text
-        _assert_default_terms(del_resp.json(), "container")
+            del_resp = _delete_terms(
+                http_session, ros_api_url, term_settings_auth, recommendation_type
+            )
+            assert del_resp.status_code == 200, del_resp.text
+            _assert_default_terms(del_resp.json(), recommendation_type)
 
-        get_resp = _get_terms(
-            http_session, ros_api_url, term_settings_auth, "container"
-        )
-        assert get_resp.status_code == 200, get_resp.text
-        _assert_default_terms(get_resp.json(), "container")
+            get_resp = _get_terms(
+                http_session, ros_api_url, term_settings_auth, recommendation_type
+            )
+            assert get_resp.status_code == 200, get_resp.text
+            _assert_default_terms(get_resp.json(), recommendation_type)
+        finally:
+            auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+            if auth:
+                _delete_terms(
+                    http_session, ros_api_url, auth, recommendation_type
+                )
 
     def test_term_settings_put_validation_invalid_window_days(
         self,
