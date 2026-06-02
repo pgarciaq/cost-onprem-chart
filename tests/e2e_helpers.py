@@ -377,7 +377,8 @@ def generate_nise_data(
     Returns:
         Dict with keys: pod_usage_files, gpu_usage_files, ros_usage_files,
         ros_vm_usage_files, ros_vm_gpu_device_files, namespace_usage_files,
-        cluster_quota_files, node_label_files, namespace_label_files
+        cluster_quota_files, node_label_files, namespace_label_files,
+        snapshot_inventory_files
     """
     # Determine which YAML to use
     if iqe_template:
@@ -447,6 +448,7 @@ def generate_nise_data(
         "cluster_quota_files": [],
         "node_label_files": [],
         "namespace_label_files": [],
+        "snapshot_inventory_files": [],
         "all_files": [],
     }
     
@@ -474,6 +476,8 @@ def generate_nise_data(
                     files["node_label_files"].append(full_path)
                 elif "namespace_label" in f:
                     files["namespace_label_files"].append(full_path)
+                elif "snapshot_inventory" in f:
+                    files["snapshot_inventory_files"].append(full_path)
     
     # Fall back: if no ros_usage files, use pod_usage
     if not files["ros_usage_files"]:
@@ -483,6 +487,12 @@ def generate_nise_data(
     vm_ros_files = files["ros_vm_usage_files"] + files["ros_vm_gpu_device_files"]
     if vm_ros_files:
         files["ros_usage_files"] = list(dict.fromkeys(files["ros_usage_files"] + vm_ros_files))
+
+    snapshot_files = files.get("snapshot_inventory_files") or []
+    if snapshot_files:
+        files["ros_usage_files"] = list(
+            dict.fromkeys(files["ros_usage_files"] + snapshot_files)
+        )
 
     if files["cluster_quota_files"] and iqe_template:
         enrich_cluster_quota_csv_files(

@@ -1,0 +1,73 @@
+---
+# Deterministic VolumeSnapshot inventory for snapshot staleness E2E.
+# Use with: nise report ocp --static-report-file ... --ros-ocp-info -w
+generators:
+  - OCPGenerator:
+      nodes:
+        - node:
+          node_name: snap-worker-1
+          cpu_cores: 4
+          memory_gig: 16
+          resource_id: snap-node-1
+          namespaces:
+            e2e-snap-ns:
+              pods:
+                - pod:
+                  pod_name: snap-holder-pod
+                  cpu_request: 0.1
+                  mem_request_gig: 0.25
+                  cpu_limit: 0.5
+                  mem_limit_gig: 0.5
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.05
+                  mem_usage_gig:
+                    full_period: 0.1
+                  labels: label_app:snapshot-e2e
+              volumes:
+                - volume:
+                  volume_name: snap-vol-pool
+                  storage_class: gp3-csi
+                  volume_request_gig: 10
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: pvc-stale-data
+                      pod_name: snap-holder-pod
+                      capacity_gig: 10
+                    - volume_claim:
+                      volume_claim_name: pvc-live
+                      pod_name: snap-holder-pod
+                      capacity_gig: 10
+                    - volume_claim:
+                      volume_claim_name: pvc-forgotten
+                      pod_name: snap-holder-pod
+                      capacity_gig: 10
+      snapshots:
+        - snapshot_name: e2e-snap-stale
+          namespace: e2e-snap-ns
+          source_pvc_name: pvc-stale-data
+          creation_days_ago: 120
+          source_pvc_exists: true
+          restored_pvc_count: 0
+          restore_size_bytes: 53687091200
+        - snapshot_name: e2e-snap-orphaned
+          namespace: e2e-snap-ns
+          source_pvc_name: pvc-gone
+          creation_days_ago: 30
+          source_pvc_exists: false
+          restored_pvc_count: 0
+          restore_size_bytes: 10737418240
+        - snapshot_name: e2e-snap-never-restored
+          namespace: e2e-snap-ns
+          source_pvc_name: pvc-forgotten
+          creation_days_ago: 45
+          source_pvc_exists: true
+          restored_pvc_count: 0
+          restore_size_bytes: 21474836480
+        - snapshot_name: e2e-snap-active
+          namespace: e2e-snap-ns
+          source_pvc_name: pvc-live
+          creation_days_ago: 5
+          source_pvc_exists: true
+          restored_pvc_count: 2
+          restore_size_bytes: 10737418240
