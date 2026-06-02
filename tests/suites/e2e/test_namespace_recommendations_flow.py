@@ -9,7 +9,7 @@ Test plan:
   4. Wait for namespace_recommendation_sets rows in costonprem_ros.
   5. GET /recommendations/openshift/namespaces and assert cluster_uuid,
      namespace, and short/medium/long recommendation terms.
-  6. Optionally verify historical_namespace_recommendation_sets snapshots.
+  6. GET /namespaces/{id}/history and verify snapshot rows (when history exists).
 
 Run (requires cluster + extended time budget):
   NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k namespace_recommendations_flow
@@ -429,3 +429,20 @@ class TestNamespaceRecommendationsExtendedFlow:
                 "historical_namespace_recommendation_sets empty; "
                 "history snapshots may be written on a later processing cycle"
             )
+
+        if rec_id:
+            history_resp = http_session.get(
+                f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+                f"recommendations/openshift/namespaces/{rec_id}/history",
+                headers=auth,
+                timeout=60,
+            )
+            assert history_resp.status_code == 200, history_resp.text
+            history_body = history_resp.json()
+            history_data = history_body.get("data")
+            assert isinstance(history_data, list), history_body
+            assert history_data, "Expected non-empty namespace history from HTTP API"
+            for entry in history_data:
+                assert entry.get("resource") in ("cpu", "memory"), entry
+                assert entry.get("term"), entry
+                assert entry.get("recorded_at"), entry
