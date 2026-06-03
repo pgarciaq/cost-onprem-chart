@@ -323,3 +323,116 @@ class TestGPURecommendationsE2E:
             pytest.skip("Tag filter did not narrow GPU MIG results")
         if filtered_count == 0:
             pytest.skip("No GPU MIG rows match filter[tag:environment]=production")
+
+    def test_gpu_mig_order_by_confidence(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("mig", {}).get("count", 0) == 0:
+            pytest.skip("No GPU MIG recommendations in cluster")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "mig",
+            {"order_by": "confidence", "order_how": "desc", "limit": 50},
+        )
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if len(items) < 2:
+            pytest.skip("Need at least two MIG rows to verify sort order")
+        for i in range(1, len(items)):
+            prev_conf = items[i - 1].get("confidence")
+            curr_conf = items[i].get("confidence")
+            assert prev_conf is not None and curr_conf is not None
+            assert prev_conf >= curr_conf
+
+    def test_gpu_mig_filter_project(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("mig", {}).get("count", 0) == 0:
+            pytest.skip("No GPU MIG recommendations in cluster")
+
+        baseline = _fetch_gpu(http_session, ros_api_url, gpu_auth, "mig", {"limit": 10})
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("GPU MIG list returned empty data")
+
+        project = items[0].get("namespace")
+        assert project, "MIG row must include namespace"
+
+        filtered = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "mig",
+            {"filter[project]": project, "limit": 50},
+        )
+        assert filtered.status_code == 200, filtered.text
+        filtered_items = filtered.json().get("data") or []
+        assert filtered_items, f"Expected MIG rows for project {project}"
+        for item in filtered_items:
+            assert item.get("namespace") == project
+
+    def test_gpu_mig_csv_export(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("mig", {}).get("count", 0) == 0:
+            pytest.skip("No GPU MIG recommendations in cluster")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "mig",
+            {"format": "csv", "limit": 100},
+        )
+        assert resp.status_code == 200, resp.text
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/csv" in content_type
+        body = resp.text.strip()
+        assert body
+        assert "cluster_uuid" in body.splitlines()[0]
+
+    def test_gpu_mig_rbac_unauthorized_cluster(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[cluster] for an unknown cluster returns empty (RBAC-safe empty list)."""
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+
+        denied_cluster = "00000000-0000-0000-0000-000000000099"
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "mig",
+            {"filter[cluster]": denied_cluster, "limit": 20},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("meta", {}).get("count", -1) == 0
+        assert body.get("data") == []
