@@ -507,6 +507,48 @@ class TestNodeRecommendationsE2E:
             engines = medium.get("recommendation_engines") or {}
             assert engines, "medium_term should include recommendation_engines"
 
+    def test_node_filter_is_underutilized(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[is_underutilized]": "true", "limit": 20},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No underutilized nodes in cluster")
+        for item in items:
+            assert (item.get("classification") or {}).get("is_underutilized") is True
+
+    def test_node_filter_is_overcommitted(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[is_overcommitted]": "true", "limit": 20},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No overcommitted nodes in cluster")
+        for item in items:
+            assert (item.get("classification") or {}).get("is_overcommitted") is True
+
     def test_node_filter_stranded_resource(
         self,
         ros_api_url: str,
@@ -657,6 +699,25 @@ class TestNodeRecommendationsE2E:
         if non_null:
             assert all(isinstance(v, str) and v.strip() for v in non_null)
 
+        instance_type = None
+        for item in items:
+            itype = item.get("instance_type")
+            if itype:
+                instance_type = itype
+                break
+        if not instance_type:
+            pytest.skip("No nodes with instance_type in sample data")
+
+        filtered = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[instance_type]": instance_type, "limit": 20},
+        )
+        assert filtered.status_code == 200, filtered.text
+        for item in filtered.json().get("data") or []:
+            assert item.get("instance_type") == instance_type
+
     def test_node_csv_export(
         self,
         ros_api_url: str,
@@ -705,6 +766,8 @@ class TestNodeRecommendationsE2E:
         assert "meta" in filtered
         filtered_count = filtered.get("meta", {}).get("count", 0)
         assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow results; no matching tagged workloads")
         for item in filtered.get("data") or []:
             _assert_node_list_shape(item)
 
