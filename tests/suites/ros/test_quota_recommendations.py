@@ -129,6 +129,36 @@ class TestQuotaRecommendationsE2E:
                         f"capacity_freed.{key} must be non-negative"
                     )
 
+    def test_quota_filter_tag(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 5})
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No quota recommendation data in cluster")
+
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        _skip_if_plugin_disabled(resp)
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered_count = resp.json().get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow quota results; no matching tagged namespaces")
+        if filtered_count == 0:
+            pytest.skip("No quotas match filter[tag:environment]=production")
+
     def test_quota_filter_by_cluster(
         self,
         ros_api_url: str,
@@ -553,9 +583,11 @@ class TestQuotaRecommendationsE2E:
         assert body.get("risk_level") in VALID_QUOTA_RISK_LEVELS
         assert "history" in body
         assert isinstance(body["history"], list)
-        if body["history"]:
-            entry = body["history"][0]
-            assert entry.get("recorded_at")
-            assert entry.get("resource")
-            assert entry.get("recommendation_type") in VALID_QUOTA_RECOMMENDATION_TYPES
-            assert entry.get("risk_level") in VALID_QUOTA_RISK_LEVELS
+        assert len(body["history"]) > 0, (
+            "quota detail history should contain snapshots after recommendation runs"
+        )
+        entry = body["history"][0]
+        assert entry.get("recorded_at"), "history entry must include recorded_at"
+        assert entry.get("resource"), "history entry must include resource"
+        assert entry.get("recommendation_type") in VALID_QUOTA_RECOMMENDATION_TYPES
+        assert entry.get("risk_level") in VALID_QUOTA_RISK_LEVELS

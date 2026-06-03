@@ -163,6 +163,34 @@ class TestRecommendationHistoryE2E:
             return
         pytest.skip("No recommendation history records for cost or performance engine")
 
+    def test_history_filter_tag(
+        self,
+        ros_api_url: str,
+        history_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_history(http_session, ros_api_url, history_auth, {"limit": 5})
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No recommendation history records in cluster")
+
+        resp = _fetch_history(
+            http_session,
+            ros_api_url,
+            history_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered_count = resp.json().get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow history results; no matching tagged namespaces")
+        if filtered_count == 0:
+            pytest.skip("No history rows match filter[tag:environment]=production")
+
     def test_history_csv_export(
         self,
         ros_api_url: str,

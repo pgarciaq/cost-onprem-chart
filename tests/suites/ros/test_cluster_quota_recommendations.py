@@ -124,6 +124,41 @@ class TestClusterQuotaRecommendationsE2E:
                 if key in block:
                     assert isinstance(block[key], int), f"{block_name}.{key} must be int"
 
+    def test_cluster_quota_filter_tag(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 5}
+        )
+        _skip_if_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No cluster quota recommendation data in cluster")
+
+        resp = _fetch_cluster_quota(
+            http_session,
+            ros_api_url,
+            cluster_quota_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        _skip_if_plugin_disabled(resp)
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered_count = resp.json().get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip(
+                "Tag filter did not narrow cluster quota results; "
+                "no matching tagged namespaces"
+            )
+        if filtered_count == 0:
+            pytest.skip("No CRQs match filter[tag:environment]=production")
+
     def test_cluster_quota_filter_by_cluster(
         self,
         ros_api_url: str,

@@ -119,6 +119,36 @@ class TestVMRecommendationsE2E:
         assert "guest_agent_detected" in meta
         assert meta.get("confidence") in VALID_VM_CONFIDENCE
 
+    def test_vm_filter_tag(
+        self,
+        ros_api_url: str,
+        vm_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_vm_list(http_session, ros_api_url, vm_auth, {"limit": 5})
+        skip_if_vm_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No VM recommendation data in cluster")
+
+        resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        skip_if_vm_plugin_disabled(resp)
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered_count = resp.json().get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow VM results; no matching tagged namespaces")
+        if filtered_count == 0:
+            pytest.skip("No VMs match filter[tag:environment]=production")
+
     def test_vm_list_current_and_recommended(
         self,
         ros_api_url: str,
