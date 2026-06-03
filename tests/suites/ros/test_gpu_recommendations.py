@@ -131,6 +131,43 @@ class TestGPURecommendationsE2E:
             f"(one of {utilization_fields})"
         )
 
+    def test_gpu_timeslicing_filter_tag(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
+            pytest.skip("No GPU time-slicing recommendations in cluster")
+
+        baseline = _fetch_gpu(
+            http_session, ros_api_url, gpu_auth, "timeslicing", {"limit": 5}
+        )
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No GPU timeslicing list data despite summary count")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "timeslicing",
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered_count = resp.json().get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow GPU timeslicing results")
+        if filtered_count == 0:
+            pytest.skip("No GPU timeslicing rows match filter[tag:environment]=production")
+
     def test_gpu_mig_list_returns_200(
         self,
         ros_api_url: str,
