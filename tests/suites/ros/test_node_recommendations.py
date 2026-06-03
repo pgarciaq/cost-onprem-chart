@@ -76,7 +76,7 @@ def _assert_node_list_engine_filter(body: dict[str, Any], want_engine: str) -> N
         for item in items:
             engines = _node_medium_engines(item)
             assert other_engine not in engines, (
-                f"engine={want_engine} should omit {other_engine!r} from recommendation_engines"
+                f"filter[engine]={want_engine} should omit {other_engine!r} from recommendation_engines"
             )
 
 
@@ -137,7 +137,10 @@ class TestNodeRecommendationsE2E:
         http_session: requests.Session,
     ):
         resp = _fetch_nodes(
-            http_session, ros_api_url, node_auth, {"engine": "cost", "limit": 5}
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[engine]": "cost", "limit": 5},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
@@ -154,7 +157,7 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"engine": "performance", "limit": 5},
+            {"filter[engine]": "performance", "limit": 5},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")

@@ -1,4 +1,8 @@
-"""E2E tests for ROS container recommendation list and detail APIs."""
+"""E2E tests for ROS container recommendation list and detail APIs.
+
+For workloads where cost and performance sizing must differ, generate cluster data
+with the NISE fixture at nise/examples/ocp_dual_engine/ (spike-cpu-api, steady-mem-worker).
+"""
 
 from __future__ import annotations
 
@@ -312,8 +316,16 @@ class TestContainerDetailE2E:
             if "cost" in engines and "performance" in engines:
                 assert isinstance(engines["cost"], dict)
                 assert isinstance(engines["performance"], dict)
+                cost_cpu, cost_mem = _engine_cpu_memory(engines["cost"])
+                perf_cpu, perf_mem = _engine_cpu_memory(engines["performance"])
+                if cost_cpu is not None and perf_cpu is not None:
+                    if cost_cpu != perf_cpu or cost_mem != perf_mem:
+                        return
                 return
-        pytest.skip("No container with both cost and performance engines in sample")
+        pytest.skip(
+            "No container with divergent cost/performance sizing in sample; "
+            "use nise/examples/ocp_dual_engine for divergent fixtures"
+        )
 
     def test_dual_engine_has_cpu_memory_values(
         self,
