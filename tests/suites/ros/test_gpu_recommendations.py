@@ -11,12 +11,20 @@ from suites.ros.test_recommendations import get_fresh_token, get_recommendations
 from suites.ros.test_container_detail import _container_detail_url
 
 GPU_MIG_NOTIFICATION_CODES = frozenset({10, 26, 27, 28})
+GPU_TIMESLICING_NOTIFICATION_CODES = frozenset({36})
 GPU_SETTINGS_THRESHOLD_KEYS = frozenset(
     {
         "idle_threshold",
         "underutilized_sm_threshold",
         "fb_headroom_factor",
         "mig_fb_percentile",
+    }
+)
+GPU_TIMESLICING_SETTINGS_KEYS = frozenset(
+    {
+        "timeslicing_min_replicas",
+        "timeslicing_max_replicas",
+        "timeslicing_majority_threshold",
     }
 )
 
@@ -185,6 +193,190 @@ class TestGPURecommendationsE2E:
             pytest.skip("Tag filter did not narrow GPU timeslicing results")
         if filtered_count == 0:
             pytest.skip("No GPU timeslicing rows match filter[tag:environment]=production")
+
+    def test_gpu_timeslicing_csv_export(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
+            pytest.skip("No GPU time-slicing recommendations in cluster")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "timeslicing",
+            {"format": "csv", "limit": 100},
+        )
+        assert resp.status_code == 200, resp.text
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/csv" in content_type
+        body = resp.text.strip()
+        assert body
+        assert "cluster_uuid" in body.splitlines()[0]
+
+    def test_gpu_timeslicing_order_by(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
+            pytest.skip("No GPU time-slicing recommendations in cluster")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "timeslicing",
+            {"order_by": "confidence", "order_how": "desc", "limit": 50},
+        )
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if len(items) < 2:
+            pytest.skip("Need at least two time-slicing rows to verify sort order")
+        for i in range(1, len(items)):
+            prev_conf = items[i - 1].get("confidence")
+            curr_conf = items[i].get("confidence")
+            assert prev_conf is not None and curr_conf is not None
+            assert prev_conf >= curr_conf
+
+    def test_gpu_timeslicing_pagination(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
+            pytest.skip("No GPU time-slicing recommendations in cluster")
+
+        resp = _fetch_gpu(
+            http_session, ros_api_url, gpu_auth, "timeslicing", {"limit": 1}
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("meta", {}).get("count", 0) > 0
+        assert len(body.get("data") or []) == 1
+
+    def test_gpu_timeslicing_filter_gpu_model(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
+            pytest.skip("No GPU time-slicing recommendations in cluster")
+
+        baseline = _fetch_gpu(
+            http_session, ros_api_url, gpu_auth, "timeslicing", {"limit": 10}
+        )
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("GPU timeslicing list returned empty data")
+
+        gpu_model = items[0].get("gpu_model")
+        assert gpu_model, "timeslicing row must include gpu_model"
+
+        filtered = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "timeslicing",
+            {"filter[gpu_model]": gpu_model, "limit": 50},
+        )
+        assert filtered.status_code == 200, filtered.text
+        filtered_items = filtered.json().get("data") or []
+        assert filtered_items, f"Expected time-slicing rows for gpu_model {gpu_model}"
+        for item in filtered_items:
+            assert gpu_model.lower() in (item.get("gpu_model") or "").lower()
+
+    def test_gpu_timeslicing_rbac(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[cluster] for an unknown cluster returns empty (RBAC-safe empty list)."""
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+
+        denied_cluster = "00000000-0000-0000-0000-000000000099"
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "timeslicing",
+            {"filter[cluster]": denied_cluster, "limit": 20},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("meta", {}).get("count", -1) == 0
+        assert body.get("data") == []
+
+    def test_gpu_timeslicing_settings(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+
+        resp = http_session.get(
+            _gpu_settings_url(ros_api_url),
+            headers=gpu_auth,
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        missing = GPU_TIMESLICING_SETTINGS_KEYS - set(body.keys())
+        assert not missing, f"Missing GPU time-slicing settings keys {missing}: {body}"
+
+    def test_gpu_timeslicing_notifications(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
+            pytest.skip("No GPU time-slicing recommendations in cluster")
+
+        resp = _fetch_gpu(
+            http_session, ros_api_url, gpu_auth, "timeslicing", {"limit": 10}
+        )
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("GPU timeslicing list returned empty data")
+
+        found_codes: set[int] = set()
+        for item in items:
+            for code in item.get("notification_codes") or []:
+                found_codes.add(int(code))
+
+        assert found_codes & GPU_TIMESLICING_NOTIFICATION_CODES, (
+            f"Expected notification code 36 on time-slicing list rows, got {found_codes}"
+        )
 
     def test_gpu_mig_list_returns_200(
         self,
