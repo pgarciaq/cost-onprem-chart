@@ -23,6 +23,55 @@ def _nodes_url(ros_api_url: str) -> str:
     )
 
 
+def _node_detail_url(ros_api_url: str, node_name: str) -> str:
+    return f"{_nodes_url(ros_api_url)}/{node_name}"
+
+
+def _machinesets_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/machinesets"
+    )
+
+
+def _assert_node_list_shape(item: dict[str, Any]) -> None:
+    """List rows use classification, metrics, and recommendation_terms."""
+    assert isinstance(item.get("classification"), dict), "missing classification object"
+    cls = item["classification"]
+    assert "is_underutilized" in cls
+    assert "idle_state" in cls
+
+    assert isinstance(item.get("metrics"), dict), "missing metrics object"
+    metrics = item["metrics"]
+    for key in ("cpu_util_p50", "cpu_util_p95", "mem_util_p50", "mem_util_p95"):
+        assert key in metrics, f"metrics missing {key}"
+
+    terms = item.get("recommendation_terms")
+    assert isinstance(terms, dict) and terms, "missing recommendation_terms"
+
+
+def _assert_node_detail_shape(detail: dict[str, Any]) -> None:
+    """Detail uses metrics, recommendation_terms, and top-level idle_state."""
+    assert isinstance(detail.get("metrics"), dict), "missing metrics object"
+    metrics = detail["metrics"]
+    for key in ("cpu_util_p50", "cpu_util_p95", "mem_util_p50", "mem_util_p95"):
+        assert key in metrics, f"metrics missing {key}"
+
+    terms = detail.get("recommendation_terms")
+    assert isinstance(terms, dict) and terms, "missing recommendation_terms"
+    assert detail.get("idle_state"), "detail missing idle_state"
+
+
+def _node_count_reduction_on_item(item: dict[str, Any]) -> bool:
+    terms = item.get("recommendation_terms") or {}
+    for term_rec in terms.values():
+        engines = (term_rec or {}).get("recommendation_engines") or {}
+        for engine in engines.values():
+            if engine and "node_count_reduction" in engine:
+                return True
+    return False
+
+
 def _fresh_auth(
     keycloak_config, cluster_config, http_session: requests.Session
 ) -> dict[str, str]:
@@ -288,8 +337,191 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"cluster_uuid": cluster_uuid, "limit": 20},
+            {"filter[cluster]": cluster_uuid, "limit": 20},
         )
         assert filtered.status_code == 200, filtered.text
         for item in filtered.json().get("data") or []:
             assert item.get("cluster_uuid") == cluster_uuid
+
+    def test_node_detail(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 5})
+        if baseline.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendation data in cluster")
+
+        item = items[0]
+        node_name = item["node"]
+        cluster_uuid = item.get("cluster_uuid")
+        assert node_name
+
+        params = {"cluster_uuid": cluster_uuid} if cluster_uuid else None
+        resp = http_session.get(
+            _node_detail_url(ros_api_url, node_name),
+            headers=node_auth,
+            params=params,
+            timeout=60,
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node detail not available")
+        assert resp.status_code == 200, resp.text
+        detail = resp.json()
+        assert detail.get("node") == node_name
+        _assert_node_detail_shape(detail)
+
+    def test_node_filter_idle_state(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[idle_state]": "active", "limit": 20},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendations matching filter[idle_state]=active")
+
+        for item in items:
+            idle = (item.get("classification") or {}).get("idle_state")
+            if idle is not None:
+                assert idle == "active"
+
+    def test_node_order_by(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"order_by": "node", "order_how": "asc", "limit": 10},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+
+    def test_node_nested_metrics_and_classification(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 5})
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendation data in cluster")
+        _assert_node_list_shape(items[0])
+
+    def test_node_count_reduction_field(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 50})
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendation data in cluster")
+
+        assert any(_node_count_reduction_on_item(item) for item in items), (
+            "expected node_count_reduction on at least one engine block"
+        )
+
+    def test_machinesets_list(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            _machinesets_url(ros_api_url),
+            headers=node_auth,
+            params={"limit": 10},
+            timeout=60,
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "meta" in body
+        assert "data" in body
+        assert isinstance(body["data"], list)
+
+    def test_node_suggested_instance_type_field(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 20})
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendation data in cluster")
+        assert "suggested_instance_type" in items[0]
+
+    def test_node_csv_export(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"format": "csv", "limit": 50},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/csv" in content_type
+        assert resp.text.strip(), "expected non-empty CSV body"
+
+    def test_node_filter_tag(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        assert "meta" in resp.json()
+
+    # RBAC for openshift.node is enforced in ros-ocp-backend unit/integration tests
+    # (handlers_node_recs_integration_test.go). E2E uses org-admin JWT without
+    # per-node restriction fixtures; N/A for chart E2E until scoped test users exist.
