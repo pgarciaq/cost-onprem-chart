@@ -496,3 +496,105 @@ class TestSnapshotClassificationExtendedFlow:
         reclaimable_cost = row.get("reclaimable_monthly_holding_cost_usd", 0)
         assert reclaimable_bytes > 0
         assert reclaimable_cost > 0
+
+    def test_snapshot_list_pagination(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        snapshot_flow_context: SnapshotFlowContext,
+    ):
+        """limit=1 pagination returns one row; offset=1 returns a different snapshot."""
+        params = {
+            "filter[cluster]": snapshot_flow_context.cluster_id,
+            "filter[project]": _NAMESPACE,
+            "limit": 1,
+            "offset": 0,
+        }
+        page1 = _fetch_snapshots(
+            http_session, ros_api_url, snapshot_flow_context.auth, params
+        )
+        _skip_if_snapshot_plugin_disabled(page1)
+        assert page1.status_code == 200, page1.text
+        body1 = page1.json()
+        total = body1.get("meta", {}).get("count", 0)
+        if total <= 1:
+            pytest.skip("Need more than one snapshot row for pagination E2E")
+        assert len(body1.get("data") or []) == 1
+
+        page2 = _fetch_snapshots(
+            http_session,
+            ros_api_url,
+            snapshot_flow_context.auth,
+            {**params, "offset": 1},
+        )
+        assert page2.status_code == 200, page2.text
+        rows2 = page2.json().get("data") or []
+        assert len(rows2) == 1
+        name1 = body1["data"][0].get("snapshot_name")
+        name2 = rows2[0].get("snapshot_name")
+        assert name1 and name2
+        assert name1 != name2, "offset=1 should return a different snapshot row"
+
+    def test_snapshot_summary_order_by_reclaimable_cost(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        snapshot_flow_context: SnapshotFlowContext,
+    ):
+        """summary order_by reclaimable_monthly_holding_cost_usd desc is monotonic."""
+        resp = _fetch_snapshots_summary(
+            http_session,
+            ros_api_url,
+            snapshot_flow_context.auth,
+            {
+                "filter[cluster]": snapshot_flow_context.cluster_id,
+                "group_by": "namespace",
+                "order_by": "reclaimable_monthly_holding_cost_usd",
+                "order_how": "desc",
+                "limit": 20,
+            },
+        )
+        _skip_if_snapshot_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        if len(rows) < 2:
+            pytest.skip("Need multiple namespace summary rows for order_by E2E")
+
+        costs = [
+            float(r.get("reclaimable_monthly_holding_cost_usd") or 0) for r in rows
+        ]
+        for i in range(len(costs) - 1):
+            assert costs[i] >= costs[i + 1], (
+                f"summary not sorted desc by reclaimable cost at index {i}: {costs}"
+            )
+
+    def test_snapshot_rbac_scoped(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        snapshot_flow_context: SnapshotFlowContext,
+    ):
+        """filter[cluster] for an inaccessible cluster returns empty list (RBAC-safe 200)."""
+        baseline = _fetch_snapshots(
+            http_session,
+            ros_api_url,
+            snapshot_flow_context.auth,
+            {
+                "filter[cluster]": snapshot_flow_context.cluster_id,
+                "limit": 1,
+            },
+        )
+        _skip_if_snapshot_plugin_disabled(baseline)
+        assert baseline.status_code == 200, baseline.text
+
+        denied_cluster = "00000000-0000-0000-0000-000000000099"
+        resp = _fetch_snapshots(
+            http_session,
+            ros_api_url,
+            snapshot_flow_context.auth,
+            {"filter[cluster]": denied_cluster, "limit": 20},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("meta", {}).get("count", 0) == 0
+        assert body.get("data") == []
