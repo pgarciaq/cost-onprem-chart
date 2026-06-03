@@ -1,7 +1,11 @@
-"""E2E tests for ROS node CPU/memory utilization recommendations."""
+"""E2E tests for ROS node CPU/memory utilization recommendations.
+
+For divergent cost vs performance node sizing, ingest nise/examples/ocp_dual_engine/.
+"""
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Optional
 
 import pytest
@@ -199,6 +203,7 @@ class TestNodeRecommendationsE2E:
         node_auth: dict,
         http_session: requests.Session,
     ):
+        """Both engines must be present; divergence is informational when data allows."""
         resp = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 50})
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
@@ -207,21 +212,33 @@ class TestNodeRecommendationsE2E:
         if body.get("meta", {}).get("count", 0) == 0:
             pytest.skip("No node recommendation data in cluster")
 
+        dual_engine_item = None
         for item in body["data"]:
             engines = _node_medium_engines(item)
-            cost = engines.get("cost")
-            perf = engines.get("performance")
-            if not cost or not perf:
-                continue
-            cost_cpu, cost_mem = _engine_sizing(cost)
-            perf_cpu, perf_mem = _engine_sizing(perf)
-            if cost_cpu is None or perf_cpu is None:
-                continue
-            if cost_cpu != perf_cpu or cost_mem != perf_mem:
-                return
-        pytest.skip(
-            "Cost and performance engines returned identical sizing for all sampled nodes"
+            if "cost" in engines and "performance" in engines:
+                dual_engine_item = item
+                break
+
+        assert dual_engine_item is not None, (
+            "No node with both cost and performance engines under medium_term"
         )
+        engines = _node_medium_engines(dual_engine_item)
+        assert isinstance(engines["cost"], dict)
+        assert isinstance(engines["performance"], dict)
+
+        cost_cpu, cost_mem = _engine_sizing(engines["cost"])
+        perf_cpu, perf_mem = _engine_sizing(engines["performance"])
+        if cost_cpu is None or perf_cpu is None:
+            return
+
+        if cost_cpu == perf_cpu and cost_mem == perf_mem:
+            warnings.warn(
+                "Cost and performance engines returned identical node sizing; "
+                "use nise/examples/ocp_dual_engine for divergent fixtures",
+                stacklevel=1,
+            )
+        else:
+            assert cost_cpu != perf_cpu or cost_mem != perf_mem
 
     def test_nodes_pagination(
         self,
