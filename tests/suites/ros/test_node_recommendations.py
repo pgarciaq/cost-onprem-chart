@@ -456,6 +456,56 @@ class TestNodeRecommendationsE2E:
             if idle is not None:
                 assert idle == "active"
 
+    def test_node_filter_idle_state_zombie(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[idle_state]": "zombie", "limit": 20},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendations matching filter[idle_state]=zombie")
+
+        for item in items:
+            idle = (item.get("classification") or {}).get("idle_state")
+            assert idle == "zombie"
+
+    def test_node_filter_idle_state_multi(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        allowed = {"active", "zombie"}
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[idle_state]": "active,zombie", "limit": 20},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip(
+                "No node recommendations matching filter[idle_state]=active,zombie"
+            )
+
+        for item in items:
+            idle = (item.get("classification") or {}).get("idle_state")
+            if idle is not None:
+                assert idle in allowed
+
     def test_node_order_by(
         self,
         ros_api_url: str,
