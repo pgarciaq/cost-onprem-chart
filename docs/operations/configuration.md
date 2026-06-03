@@ -527,6 +527,9 @@ ros:
   processor:
     metricsPort: 9000
     logLevel: INFO
+    # Recommendation history partition retention and stale-row cleanup (ros-processor only).
+    historyRetentionDays: 90   # ROS_HISTORY_RETENTION_DAYS
+    staleCleanupDays: 30       # ROS_STALE_CLEANUP_DAYS
   recommendationPoller:
     metricsPort: 9000
     logLevel: INFO
@@ -637,6 +640,17 @@ These are set automatically by the Helm chart in `_helpers-koku.tpl`:
 | `ENHANCED_ORG_ADMIN` | `False` | **Must be False** — disables Koku's admin bypass so all auth flows through RBAC |
 
 > **Important**: `ENHANCED_ORG_ADMIN` must remain `False`. Setting it to `True` causes Koku to bypass RBAC entirely for users with `is_org_admin: true` in their identity header, which defeats the purpose of RBAC enforcement.
+
+#### ROS processor retention (Helm values)
+
+The chart injects these into the **ros-processor** deployment only (24-hour background sweep in ros-ocp-backend):
+
+| `values.yaml` key | Env var | Default | Description |
+|-------------------|---------|---------|-------------|
+| `ros.processor.historyRetentionDays` | `ROS_HISTORY_RETENTION_DAYS` | `90` | Drop `recommendation_history` / `recommendation_quality` partitions older than N days |
+| `ros.processor.staleCleanupDays` | `ROS_STALE_CLEANUP_DAYS` | `30` | Delete `recommendation_sets` with `stale = true` older than N days |
+
+Staleness marking (`ROS_STALENESS_THRESHOLD_HOURS`, default 48) is not chart-templated; set it via `ros.thresholdEnv` if you need to override the compiled default. See [ros-ocp-backend retention](https://github.com/project-koku/ros-ocp-backend/blob/main/docs/operations/retention.md).
 
 #### ROS RBAC Integration Variables
 

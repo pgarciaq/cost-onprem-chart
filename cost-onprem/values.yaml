@@ -136,6 +136,11 @@ ros:
     # Kruize integration
     kruizeWaitTime: 120
 
+    # Retention sweep (ros-processor background ticker; maps to ROS_* env vars).
+    # See ros-ocp-backend docs/operations/retention.md.
+    historyRetentionDays: 90
+    staleCleanupDays: 30
+
   # Optional admin overrides for recommendation thresholds (ROS_* env vars).
   # Only keys listed here are injected into ros-api and ros-processor pods.
   # When an env var is set it locks that field for all tenants via the Settings API.
