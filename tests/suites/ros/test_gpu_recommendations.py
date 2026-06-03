@@ -622,3 +622,69 @@ class TestGPURecommendationsE2E:
         assert found_codes & GPU_MIG_NOTIFICATION_CODES, (
             f"Expected GPU MIG notification codes in gpu.*.notifications, got {found_codes}"
         )
+
+    def test_gpu_mig_savings_on_detail(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        ts_count = summary.json().get("timeslicing", {}).get("count", 0)
+        mig_count = summary.json().get("mig", {}).get("count", 0)
+        if ts_count == 0 and mig_count == 0:
+            pytest.skip("No GPU recommendation data in cluster")
+
+        list_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=gpu_auth,
+            params={"has_gpu": "true", "limit": 20},
+            timeout=60,
+        )
+        assert list_resp.status_code == 200, list_resp.text
+        containers = list_resp.json().get("data") or []
+        if not containers:
+            pytest.skip("No GPU-enriched container recommendations in cluster")
+
+        detail_id = None
+        for row in containers:
+            gpu_block = row.get("gpu") or {}
+            for term_gpu in gpu_block.values():
+                if not isinstance(term_gpu, dict):
+                    continue
+                savings = term_gpu.get("estimated_monthly_gpu_savings")
+                savings_usd = term_gpu.get("estimated_monthly_gpu_savings_usd")
+                if savings is not None or savings_usd is not None:
+                    detail_id = row.get("id")
+                    break
+            if detail_id:
+                break
+        if not detail_id:
+            pytest.skip("No container list row exposes GPU savings fields")
+
+        detail_resp = http_session.get(
+            _container_detail_url(ros_api_url, detail_id),
+            headers=gpu_auth,
+            timeout=60,
+        )
+        assert detail_resp.status_code == 200, detail_resp.text
+        detail = detail_resp.json()
+        gpu_block = detail.get("gpu") or {}
+        assert gpu_block, f"Missing gpu block on detail: {detail}"
+
+        found_savings = False
+        for term_gpu in gpu_block.values():
+            if not isinstance(term_gpu, dict):
+                continue
+            if term_gpu.get("estimated_monthly_gpu_savings") is not None:
+                found_savings = True
+                break
+            if term_gpu.get("estimated_monthly_gpu_savings_usd") is not None:
+                found_savings = True
+                break
+        assert found_savings, (
+            f"Expected gpu.*.estimated_monthly_gpu_savings or "
+            f"estimated_monthly_gpu_savings_usd on detail, got {gpu_block}"
+        )
