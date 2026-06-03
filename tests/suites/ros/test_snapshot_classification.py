@@ -53,6 +53,8 @@ _NISE_TEMPLATE = "ocp_report_snapshot_classification.yml"
 _NAMESPACE = "e2e-snap-ns"
 
 # Expected recommendation_type per snapshot_name (matches template + default thresholds).
+# redundant and managed types are not seeded here (would need extra NISE snapshot rows);
+# those classifications are covered in ros-ocp-backend unit tests.
 EXPECTED_CLASSIFICATIONS: dict[str, str] = {
     "e2e-snap-stale": "stale",
     "e2e-snap-orphaned": "orphaned",
@@ -457,6 +459,39 @@ class TestSnapshotClassificationExtendedFlow:
         active_rows = active_resp.json().get("data") or []
         active_names = {r.get("snapshot_name") for r in active_rows}
         assert "e2e-snap-active" in active_names
+
+    def test_snapshot_summary_filter_recommendation_type(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        snapshot_flow_context: SnapshotFlowContext,
+    ):
+        """summary filter[recommendation_type]=stale aggregates only stale snapshot counts."""
+        resp = _fetch_snapshots_summary(
+            http_session,
+            ros_api_url,
+            snapshot_flow_context.auth,
+            {
+                "filter[cluster]": snapshot_flow_context.cluster_id,
+                "filter[project]": _NAMESPACE,
+                "filter[recommendation_type]": "stale",
+                "group_by": "namespace",
+                "limit": 20,
+            },
+        )
+        _skip_if_snapshot_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        assert rows, "filtered summary should include namespace row for stale snapshots"
+
+        row = rows[0]
+        counts_by_type = row.get("counts_by_type") or {}
+        assert counts_by_type.get("stale", 0) >= 1
+        for other_type in ("orphaned", "never_restored", "active"):
+            assert counts_by_type.get(other_type, 0) == 0, (
+                f"summary filter[recommendation_type]=stale should exclude {other_type}: "
+                f"{counts_by_type}"
+            )
 
     def test_snapshot_summary_aggregates_reclaimable(
         self,
