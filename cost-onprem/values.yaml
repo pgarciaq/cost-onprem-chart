@@ -76,8 +76,9 @@ ros:
     # When true, exhausted masu reship retries transition to forward-only BH recommendations.
     reshipForwardOnlyFallback: false
 
-    # Tag filtering (on-prem uses shared PostgreSQL; push sync stays disabled).
-    tagsEnabled: false
+    # Tag filtering enabled by default; filterable keys are gated in Koku Settings > Tags.
+    # On-prem uses shared PostgreSQL (tagsSource: db); push sync stays disabled.
+    tagsEnabled: true
     tagsSource: db
     # Comma-separated K8s SA names allowed to call POST /internal/tags/sync (api mode only).
     tagsAllowedServiceAccounts: ""
