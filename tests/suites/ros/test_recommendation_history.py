@@ -152,7 +152,7 @@ class TestRecommendationHistoryE2E:
                 http_session,
                 ros_api_url,
                 history_auth,
-                {"engine": engine, "limit": 10},
+                {"filter[engine]": engine, "limit": 10},
             )
             assert resp.status_code == 200, resp.text
             body = resp.json()

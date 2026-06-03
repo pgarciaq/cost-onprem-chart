@@ -166,6 +166,10 @@ class TestRecommendationQualityE2E:
             body = resp.json()
             assert "meta" in body
             assert "data" in body
+            if body.get("meta", {}).get("count", 0) == 0:
+                continue
+            for row in body.get("data") or []:
+                assert row.get("engine") == engine
 
     def test_quality_csv_export(
         self,

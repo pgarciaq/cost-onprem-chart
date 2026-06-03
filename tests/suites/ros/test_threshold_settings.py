@@ -13,9 +13,16 @@ from utils import parse_savings_value, run_oc_command, wait_for_condition
 
 _RECOMMENDATION_TYPES = ("container", "namespace", "node", "gpu", "pvc")
 
+_DUAL_ENGINE_PERCENTILE_FIELDS = (
+    "cpu_cost_percentile",
+    "cpu_perf_percentile",
+    "mem_cost_percentile",
+    "mem_perf_percentile",
+)
+
 _TYPE_EXPECTED_FIELDS: dict[str, list[str]] = {
-    "container": ["cpu_cost_percentile", "mem_cost_percentile", "locked_fields"],
-    "namespace": ["cpu_cost_percentile", "mem_cost_percentile", "locked_fields"],
+    "container": list(_DUAL_ENGINE_PERCENTILE_FIELDS) + ["locked_fields"],
+    "namespace": list(_DUAL_ENGINE_PERCENTILE_FIELDS) + ["locked_fields"],
     "node": ["cost_target_utilization", "underutil_threshold", "locked_fields"],
     "gpu": ["idle_threshold", "underutilized_sm_threshold", "locked_fields"],
     "pvc": ["oversized_threshold", "near_full_threshold", "locked_fields"],
@@ -246,6 +253,10 @@ class TestThresholdSettingsE2E:
         assert body["cpu_cost_percentile"] == pytest.approx(
             _CONTAINER_DEFAULTS["cpu_cost_percentile"], rel=1e-6
         )
+        for field in _DUAL_ENGINE_PERCENTILE_FIELDS:
+            assert field in body, f"missing {field!r} in container threshold settings"
+            assert isinstance(body[field], (int, float))
+            assert 0 < body[field] <= 1
         assert isinstance(body["locked_fields"], list)
 
     def test_threshold_get_defaults_all_types(
