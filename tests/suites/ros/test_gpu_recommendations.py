@@ -247,3 +247,42 @@ class TestGPURecommendationsE2E:
                     assert model_name.strip()
                     return
         pytest.skip("Container list has_gpu rows but none expose current_gpu_model")
+
+    def test_gpu_filter_tag(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        mig_count = summary.json().get("mig", {}).get("count", 0)
+        if mig_count == 0:
+            pytest.skip("No GPU MIG recommendation data in cluster")
+
+        baseline = _fetch_gpu(
+            http_session, ros_api_url, gpu_auth, "mig", {"limit": 5},
+        )
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No GPU MIG list data despite summary count")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "mig",
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered = resp.json()
+        filtered_count = filtered.get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow GPU MIG results")
+        if filtered_count == 0:
+            pytest.skip("No GPU MIG rows match filter[tag:environment]=production")

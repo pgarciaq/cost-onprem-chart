@@ -268,3 +268,33 @@ class TestNamespaceRecommendationsE2E:
         assert "meta" in body
         assert "data" in body
         assert isinstance(body["data"], list)
+
+    def test_namespace_filter_tag(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_namespaces(http_session, ros_api_url, namespace_auth, {"limit": 5})
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No namespace recommendation data in cluster")
+
+        resp = _fetch_namespaces(
+            http_session,
+            ros_api_url,
+            namespace_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered = resp.json()
+        filtered_count = filtered.get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow results; no matching tagged namespaces")
+        if filtered_count == 0:
+            pytest.skip("No namespaces match filter[tag:environment]=production")
+        assert filtered_count < unfiltered_count

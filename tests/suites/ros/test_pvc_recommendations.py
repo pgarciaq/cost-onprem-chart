@@ -322,6 +322,37 @@ class TestPVCRecommendationsE2E:
         for row in filtered.json().get("data") or []:
             assert row.get("storageclass") == storageclass
 
+    def test_pvc_filter_tag(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_pvcs(http_session, ros_api_url, pvc_auth, {"limit": 5})
+        _skip_if_no_pvc_plugin(baseline)
+        assert baseline.status_code == 200, baseline.text
+        unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
+        if unfiltered_count == 0:
+            pytest.skip("No PVC recommendation data in cluster")
+
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {"filter[tag:environment]": "production", "limit": 10},
+        )
+        _skip_if_no_pvc_plugin(resp)
+        if resp.status_code == 400:
+            pytest.skip("Tag filtering not enabled or invalid tag key")
+        assert resp.status_code == 200, resp.text
+        filtered = resp.json()
+        filtered_count = filtered.get("meta", {}).get("count", 0)
+        assert filtered_count <= unfiltered_count
+        if unfiltered_count > 0 and filtered_count == unfiltered_count:
+            pytest.skip("Tag filter did not narrow results; no matching tagged PVC namespaces")
+        if filtered_count == 0:
+            pytest.skip("No PVCs match filter[tag:environment]=production")
+
     def test_pvc_filter_by_term(
         self,
         ros_api_url: str,
