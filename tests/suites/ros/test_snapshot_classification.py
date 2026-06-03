@@ -378,6 +378,45 @@ class TestSnapshotClassificationExtendedFlow:
             "expected at least one non-active classification in API response"
         )
 
+    def test_snapshot_notifications_on_list(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        snapshot_flow_context: SnapshotFlowContext,
+    ):
+        """Non-active snapshot rows include notifications map with codes 31-35."""
+        resp = _fetch_snapshots(
+            http_session,
+            ros_api_url,
+            snapshot_flow_context.auth,
+            {
+                "filter[cluster]": snapshot_flow_context.cluster_id,
+                "filter[project]": _NAMESPACE,
+                "limit": 50,
+            },
+        )
+        _skip_if_snapshot_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        assert rows, "expected snapshot rows after classification upload"
+
+        snapshot_codes = {31, 32, 33, 34, 35}
+        saw_notification = False
+        for row in rows:
+            if row.get("recommendation_type") == "active":
+                continue
+            notifs = row.get("notifications")
+            if not notifs:
+                continue
+            saw_notification = True
+            codes = {int(k) for k in notifs.keys()}
+            assert codes & snapshot_codes, (
+                f"{row.get('snapshot_name')}: unexpected notification codes {codes}"
+            )
+        assert saw_notification, (
+            "expected notifications on at least one non-active snapshot row"
+        )
+
     def test_snapshot_filter_by_recommendation_type(
         self,
         ros_api_url: str,
