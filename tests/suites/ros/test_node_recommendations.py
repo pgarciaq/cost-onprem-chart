@@ -695,6 +695,35 @@ class TestNodeRecommendationsE2E:
             stranded = (item.get("classification") or {}).get("stranded_resource")
             assert stranded == "cpu"
 
+    def test_node_filter_machineset_name(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 20})
+        if baseline.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert baseline.status_code == 200, baseline.text
+        machineset_name = None
+        for item in baseline.json().get("data") or []:
+            name = item.get("machineset_name")
+            if name:
+                machineset_name = name
+                break
+        if not machineset_name:
+            pytest.skip("No machineset data in test environment")
+
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[machineset_name]": machineset_name, "limit": 50},
+        )
+        assert resp.status_code == 200, resp.text
+        for item in resp.json().get("data") or []:
+            assert item.get("machineset_name") == machineset_name
+
     def test_node_settings_get(
         self,
         ros_api_url: str,
