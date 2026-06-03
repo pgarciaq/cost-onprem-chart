@@ -7,7 +7,7 @@
 {{- $quota := .Values.ros.api.quotaRecommendations | default dict }}
 {{- $clusterQuota := .Values.ros.api.clusterQuotaRecommendations | default dict }}
 - name: ROS_TAGS_ENABLED
-  value: {{ .Values.ros.api.tagsEnabled | default false | quote }}
+  value: {{ .Values.ros.api.tagsEnabled | default true | quote }}
 - name: ROS_TAGS_SOURCE
   value: {{ .Values.ros.api.tagsSource | default "db" | quote }}
 - name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS
