@@ -57,6 +57,30 @@ class TestTagsAPI:
         assert "data" in data, "Response missing 'data' field"
         assert isinstance(data["data"], list), "Expected 'data' to be a list"
 
+    def test_koku_tag_discovery_returns_enabled_keys(
+        self,
+        authenticated_session: requests.Session,
+        gateway_url: str,
+    ):
+        """Koku tag discovery returns 200 with a non-empty enabled tag keys list when data exists."""
+        response = authenticated_session.get(
+            f"{gateway_url}/cost-management/v1/tags/openshift/",
+            timeout=30,
+        )
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text[:500]}"
+        )
+        data = response.json()
+        assert "data" in data, "Response missing 'data' field"
+        assert isinstance(data["data"], list), "Expected 'data' to be a list"
+        if not data["data"]:
+            pytest.skip("No enabled tag keys in cluster — ingest OCP data with namespace labels first")
+        tag_entry = data["data"][0]
+        if isinstance(tag_entry, dict):
+            assert tag_entry.get("key") or tag_entry.get("tag"), (
+                f"Tag entry missing key identifier: {tag_entry}"
+            )
+
     def test_ocp_tags_list_structure(
         self,
         authenticated_session: requests.Session,

@@ -720,6 +720,177 @@ class TestContainerDetailE2E:
         items = body.get("data") or []
         assert items, "Expected data rows when meta.count > 0"
 
+    def _discover_two_tag_filters(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+        gateway_url: str,
+    ) -> tuple[tuple[str, str], tuple[str, str]]:
+        """Return two (key, value) pairs that each match at least one container."""
+        pairs: list[tuple[str, str]] = []
+        tags_resp = http_session.get(
+            f"{gateway_url.rstrip('/')}/cost-management/v1/tags/openshift/",
+            headers=container_auth,
+            timeout=60,
+        )
+        if tags_resp.status_code == 200:
+            for row in tags_resp.json().get("data") or []:
+                key = (row.get("key") or row.get("tag")) if isinstance(row, dict) else None
+                values = row.get("values") or [] if isinstance(row, dict) else []
+                if not key or not values:
+                    continue
+                value = values[0] if isinstance(values[0], str) else values[0].get("value")
+                if not value:
+                    continue
+                probe = http_session.get(
+                    get_recommendations_endpoint(ros_api_url),
+                    headers=container_auth,
+                    params={f"filter[tag:{key}]": value, "limit": 1},
+                    timeout=60,
+                )
+                if probe.status_code == 200 and probe.json().get("meta", {}).get("count", 0) > 0:
+                    pairs.append((key, value))
+                if len(pairs) >= 2:
+                    return pairs[0], pairs[1]
+
+        for key, value in (("environment", "production"), ("app", "billing")):
+            probe = http_session.get(
+                get_recommendations_endpoint(ros_api_url),
+                headers=container_auth,
+                params={f"filter[tag:{key}]": value, "limit": 1},
+                timeout=60,
+            )
+            if probe.status_code == 200 and probe.json().get("meta", {}).get("count", 0) > 0:
+                if (key, value) not in pairs:
+                    pairs.append((key, value))
+            if len(pairs) >= 2:
+                return pairs[0], pairs[1]
+
+        pytest.skip(
+            "Need two tag key/value pairs with matching containers; enable OCP tags and ingest labeled workloads"
+        )
+
+    def test_tag_filter_multi_key_and_logic(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+        gateway_url: str,
+    ):
+        """Multiple filter[tag:*] keys combine with AND and narrow the result set."""
+        (key1, value1), (key2, value2) = self._discover_two_tag_filters(
+            ros_api_url, container_auth, http_session, gateway_url
+        )
+
+        def _count(params: dict[str, str]) -> int:
+            resp = http_session.get(
+                get_recommendations_endpoint(ros_api_url),
+                headers=container_auth,
+                params={**params, "limit": 100},
+                timeout=60,
+            )
+            assert resp.status_code == 200, resp.text
+            return resp.json().get("meta", {}).get("count", 0)
+
+        count_key1 = _count({f"filter[tag:{key1}]": value1})
+        count_key2 = _count({f"filter[tag:{key2}]": value2})
+        if count_key1 == 0 or count_key2 == 0:
+            pytest.skip("Single-key tag probes returned no rows")
+
+        dual_resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={
+                f"filter[tag:{key1}]": value1,
+                f"filter[tag:{key2}]": value2,
+                "limit": 100,
+            },
+            timeout=60,
+        )
+        assert dual_resp.status_code == 200, dual_resp.text
+        dual_body = dual_resp.json()
+        _assert_paginated_envelope(dual_body)
+        dual_count = dual_body.get("meta", {}).get("count", 0)
+        assert dual_count <= count_key1, (
+            f"AND filter count {dual_count} should be <= single-key {key1} count {count_key1}"
+        )
+        assert dual_count <= count_key2, (
+            f"AND filter count {dual_count} should be <= single-key {key2} count {count_key2}"
+        )
+        if dual_count == 0:
+            pytest.skip(f"No containers match both {key1}={value1} and {key2}={value2}")
+
+        single_key1_ids = {
+            item.get("id")
+            for item in (
+                http_session.get(
+                    get_recommendations_endpoint(ros_api_url),
+                    headers=container_auth,
+                    params={f"filter[tag:{key1}]": value1, "limit": 100},
+                    timeout=60,
+                ).json().get("data")
+                or []
+            )
+            if item.get("id")
+        }
+        single_key2_ids = {
+            item.get("id")
+            for item in (
+                http_session.get(
+                    get_recommendations_endpoint(ros_api_url),
+                    headers=container_auth,
+                    params={f"filter[tag:{key2}]": value2, "limit": 100},
+                    timeout=60,
+                ).json().get("data")
+                or []
+            )
+            if item.get("id")
+        }
+        for item in dual_body.get("data") or []:
+            row_id = item.get("id")
+            assert row_id in single_key1_ids, (
+                f"Row {row_id} must appear in {key1}={value1} filter results"
+            )
+            assert row_id in single_key2_ids, (
+                f"Row {row_id} must appear in {key2}={value2} filter results"
+            )
+
+    def test_tag_filter_with_rbac_scoped_identity(
+        self,
+        ros_api_url: str,
+        container_auth: dict,
+        http_session: requests.Session,
+    ):
+        """Tag filter plus inaccessible cluster returns empty list (RBAC ∩ tag intersection)."""
+        tag_key = "environment"
+        tag_value = "production"
+        baseline = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={f"filter[tag:{tag_key}]": tag_value, "limit": 20},
+            timeout=60,
+        )
+        assert baseline.status_code == 200, baseline.text
+        if baseline.json().get("meta", {}).get("count", 0) == 0:
+            pytest.skip(f"No containers with tag {tag_key}={tag_value} for baseline")
+
+        denied_cluster = "00000000-0000-0000-0000-000000000099"
+        resp = http_session.get(
+            get_recommendations_endpoint(ros_api_url),
+            headers=container_auth,
+            params={
+                "filter[cluster]": denied_cluster,
+                f"filter[tag:{tag_key}]": tag_value,
+                "limit": 20,
+            },
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("meta", {}).get("count", 0) == 0
+        assert body.get("data") == []
+
     def test_container_order_by(
         self,
         ros_api_url: str,
