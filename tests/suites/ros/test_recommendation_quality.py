@@ -94,7 +94,7 @@ class TestRecommendationQualityE2E:
             if stability is None:
                 continue
             checked = True
-            assert 0 <= stability <= 100, f"stability_pct out of range: {stability}"
+            assert 0 <= stability <= 1, f"stability_pct out of range (expected 0.0-1.0): {stability}"
         assert checked, "expected at least one row with non-null stability_pct"
 
     def test_quality_filter_by_cluster(
