@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
-from utils import assert_structured_savings, parse_savings_value
+from utils import assert_structured_savings, parse_savings_value, run_oc_command
 
 _FLOAT_TOLERANCE = 0.02
 
@@ -24,6 +25,13 @@ def _fleet_summary_url(ros_api_url: str) -> str:
     return (
         f"{ros_api_url.rstrip('/')}/cost-management/v1/"
         "recommendations/openshift/fleet-summary"
+    )
+
+
+def _pvcs_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/pvcs"
     )
 
 
@@ -256,4 +264,246 @@ class TestSavingsSummaryE2E:
         assert active + idle + abandoned <= total, (
             f"active({active}) + idle({idle}) + abandoned({abandoned}) "
             f"exceeds total_containers({total})"
+        )
+
+
+@pytest.mark.component
+def test_savings_summary_filter_cluster(
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """Fleet savings-summary filter[cluster] scopes grouped responses."""
+    url = _savings_summary_url(ros_api_url)
+    group_params = {"group_by[idle_state]": "*"}
+
+    unfiltered = http_session.get(
+        url,
+        headers=savings_auth,
+        params=group_params,
+        timeout=60,
+    )
+    assert unfiltered.status_code == 200, unfiltered.text
+    unfiltered_body = unfiltered.json()
+    assert "data" in unfiltered_body
+    assert "meta" in unfiltered_body
+
+    filtered = http_session.get(
+        url,
+        headers=savings_auth,
+        params={
+            **group_params,
+            "filter[cluster]": "00000000-0000-0000-0000-000000000000",
+        },
+        timeout=60,
+    )
+    assert filtered.status_code == 200, filtered.text
+    filtered_body = filtered.json()
+    assert "data" in filtered_body
+
+    # Non-existent cluster should yield empty grouped response
+    assert filtered_body["data"] == [] or int(filtered_body.get("meta", {}).get("count", -1)) == 0
+
+    if isinstance(filtered_body["data"], list) and filtered_body["data"]:
+        for item in filtered_body["data"]:
+            waste_val = item.get("estimated_monthly_waste", {})
+            if isinstance(waste_val, dict):
+                assert float(waste_val.get("value", 0)) == 0
+
+    if unfiltered_body["data"]:
+        unfiltered_waste = sum(
+            parse_savings_value(row.get("estimated_monthly_waste")) or 0
+            for row in unfiltered_body["data"]
+            if isinstance(row, dict)
+        )
+        filtered_waste = sum(
+            parse_savings_value(row.get("estimated_monthly_waste")) or 0
+            for row in filtered_body["data"]
+            if isinstance(row, dict)
+        )
+        assert filtered_waste <= unfiltered_waste + _FLOAT_TOLERANCE
+
+
+@pytest.mark.component
+def test_savings_summary_group_by_tag(
+    require_recommendations,
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """Fleet savings-summary supports group_by[tag:*] for tag-based breakdown."""
+    resp = http_session.get(
+        _savings_summary_url(ros_api_url),
+        headers=savings_auth,
+        params={"group_by[tag:environment]": "*"},
+        timeout=60,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "data" in data
+    assert "meta" in data
+
+
+@pytest.mark.component
+def test_savings_summary_group_by_idle_state(
+    require_recommendations,
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """Fleet savings-summary supports group_by[idle_state] for idle/active breakdown."""
+    resp = http_session.get(
+        _savings_summary_url(ros_api_url),
+        headers=savings_auth,
+        params={"group_by[idle_state]": "*"},
+        timeout=60,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "data" in data
+    assert "meta" in data
+
+
+@pytest.mark.component
+def test_savings_summary_term_filter(
+    require_recommendations,
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """Fleet savings-summary supports term parameter (short, medium, long)."""
+    for term in ("short", "medium", "long"):
+        resp = http_session.get(
+            _savings_summary_url(ros_api_url),
+            headers=savings_auth,
+            params={"term": term},
+            timeout=60,
+        )
+        assert resp.status_code == 200, (
+            f"term={term} failed with {resp.status_code}: {resp.text}"
+        )
+        data = resp.json()
+        assert "data" in data or "estimated_monthly_savings" in data
+
+
+@pytest.mark.extended
+def test_savings_summary_kill_switch(
+    cluster_config,
+    require_recommendations,
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """When ROS_SAVINGS_ESTIMATES_ENABLED=false, new savings computations are skipped.
+
+    Toggles the env var on the ROS processor deployment, waits for rollout,
+    verifies the API still serves persisted data, then restores the original value.
+    """
+    deployment = f"{cluster_config.helm_release_name}-ros-processor"
+    ns = cluster_config.namespace
+    env_var = "ROS_SAVINGS_ESTIMATES_ENABLED"
+
+    result = run_oc_command(
+        [
+            "get",
+            "deployment",
+            deployment,
+            "-n",
+            ns,
+            "-o",
+            f"jsonpath={{.spec.template.spec.containers[0].env[?(@.name=='{env_var}')].value}}",
+        ],
+        check=False,
+    )
+    original_value = result.stdout.strip() or "true"
+
+    try:
+        run_oc_command(
+            ["set", "env", f"deployment/{deployment}", f"{env_var}=false", "-n", ns],
+        )
+        run_oc_command(
+            [
+                "rollout",
+                "status",
+                f"deployment/{deployment}",
+                "-n",
+                ns,
+                "--timeout=120s",
+            ],
+            timeout=130,
+        )
+        time.sleep(5)
+
+        # The kill-switch prevents NEW savings computation during ingestion.
+        # Persisted historical savings remain unchanged (served from DB).
+        # Full post-ingest $0 validation would require: disable → delete existing
+        # data → re-ingest → verify. This test validates the operational toggle
+        # (no crash, API intact) only.
+        resp = http_session.get(
+            _savings_summary_url(ros_api_url),
+            headers=savings_auth,
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # Response structure must stay valid even when savings estimates are disabled.
+        assert "meta" in data or "data" in data or "estimated_monthly_savings" in data
+
+    finally:
+        run_oc_command(
+            [
+                "set",
+                "env",
+                f"deployment/{deployment}",
+                f"{env_var}={original_value}",
+                "-n",
+                ns,
+            ],
+            check=False,
+        )
+        run_oc_command(
+            [
+                "rollout",
+                "status",
+                f"deployment/{deployment}",
+                "-n",
+                ns,
+                "--timeout=120s",
+            ],
+            check=False,
+            timeout=130,
+        )
+
+
+@pytest.mark.extended
+def test_pvc_orphaned_savings_nonzero(
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """Orphaned PVCs should show non-zero savings (full capacity × rate).
+
+    Requires test data with an orphaned PVC (zero usage over observation window).
+    """
+    resp = http_session.get(
+        _pvcs_url(ros_api_url),
+        headers=savings_auth,
+        params={"filter[recommendation_type]": "orphaned"},
+        timeout=60,
+    )
+    if resp.status_code == 404:
+        pytest.skip("PVC recommendations plugin not enabled (404 on /pvcs)")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    if not data.get("data"):
+        pytest.skip("No orphaned PVCs in test data")
+    for pvc in data["data"]:
+        savings_obj = pvc.get("estimated_monthly_savings")
+        if savings_obj is None:
+            continue
+        assert_structured_savings(savings_obj)
+        savings = parse_savings_value(savings_obj)
+        assert savings is not None and savings > 0, (
+            f"Orphaned PVC {pvc.get('pvc_name')} should have positive savings "
+            f"(full capacity recoverable), got {savings_obj}"
         )
