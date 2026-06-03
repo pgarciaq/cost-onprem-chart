@@ -7,6 +7,7 @@ with the NISE fixture at nise/examples/ocp_dual_engine/ (spike-cpu-api, steady-m
 from __future__ import annotations
 
 import uuid
+import warnings
 from typing import Any, Optional
 
 import pytest
@@ -311,21 +312,33 @@ class TestContainerDetailE2E:
         if not items:
             pytest.skip("No container recommendations in cluster")
 
+        dual_engine_item = None
         for item in items:
             engines = _medium_term_engines(item)
             if "cost" in engines and "performance" in engines:
-                assert isinstance(engines["cost"], dict)
-                assert isinstance(engines["performance"], dict)
-                cost_cpu, cost_mem = _engine_cpu_memory(engines["cost"])
-                perf_cpu, perf_mem = _engine_cpu_memory(engines["performance"])
-                if cost_cpu is not None and perf_cpu is not None:
-                    if cost_cpu != perf_cpu or cost_mem != perf_mem:
-                        return
-                return
-        pytest.skip(
-            "No container with divergent cost/performance sizing in sample; "
-            "use nise/examples/ocp_dual_engine for divergent fixtures"
+                dual_engine_item = item
+                break
+
+        assert dual_engine_item is not None, (
+            "No container with both cost and performance engines under medium_term"
         )
+        engines = _medium_term_engines(dual_engine_item)
+        assert isinstance(engines["cost"], dict)
+        assert isinstance(engines["performance"], dict)
+
+        cost_cpu, cost_mem = _engine_cpu_memory(engines["cost"])
+        perf_cpu, perf_mem = _engine_cpu_memory(engines["performance"])
+        if cost_cpu is None or perf_cpu is None:
+            return
+
+        if cost_cpu == perf_cpu and cost_mem == perf_mem:
+            warnings.warn(
+                "Cost and performance engines returned identical sizing; "
+                "use nise/examples/ocp_dual_engine for divergent fixtures",
+                stacklevel=1,
+            )
+        else:
+            assert cost_cpu != perf_cpu or cost_mem != perf_mem
 
     def test_dual_engine_has_cpu_memory_values(
         self,
