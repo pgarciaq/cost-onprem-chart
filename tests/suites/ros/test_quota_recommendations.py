@@ -381,6 +381,51 @@ class TestQuotaRecommendationsE2E:
         assert body.get("meta", {}).get("count", 0) == 0
         assert body.get("data") == []
 
+    def test_quota_rbac(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[cluster] for an inaccessible cluster returns empty list (RBAC-safe 200)."""
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 1})
+        _skip_if_plugin_disabled(baseline)
+
+        denied_cluster = "00000000-0000-0000-0000-000000000099"
+        resp = _fetch_quota(
+            http_session,
+            ros_api_url,
+            quota_auth,
+            {"filter[cluster]": denied_cluster, "limit": 20},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("meta", {}).get("count", 0) == 0
+        assert body.get("data") == []
+
+    def test_quota_csv_export(
+        self,
+        ros_api_url: str,
+        quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        """format=csv returns text/csv with a header row."""
+        baseline = _fetch_quota(http_session, ros_api_url, quota_auth, {"limit": 1})
+        _skip_if_plugin_disabled(baseline)
+
+        resp = http_session.get(
+            _quota_url(ros_api_url),
+            headers={**quota_auth, "Accept": "text/csv"},
+            params={"format": "csv", "limit": 100},
+            timeout=60,
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        assert "text/csv" in (resp.headers.get("Content-Type") or "")
+        lines = [line for line in resp.text.splitlines() if line.strip()]
+        assert len(lines) >= 1
+        assert lines[0].startswith("cluster_uuid,")
+
     def test_quota_pagination(
         self,
         ros_api_url: str,
