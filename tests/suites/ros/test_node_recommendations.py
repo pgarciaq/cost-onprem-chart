@@ -374,6 +374,31 @@ class TestNodeRecommendationsE2E:
         for item in filtered.json().get("data") or []:
             assert item.get("cluster_uuid") == cluster_uuid
 
+    def test_node_filter_by_node_name(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_nodes(http_session, ros_api_url, node_auth, {"limit": 5})
+        if baseline.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendation data in cluster")
+
+        node_name = items[0]["node"]
+        filtered = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[node]": node_name, "limit": 20},
+        )
+        assert filtered.status_code == 200, filtered.text
+        for item in filtered.json().get("data") or []:
+            assert item["node"] == node_name
+
     def test_node_detail(
         self,
         ros_api_url: str,
@@ -507,6 +532,54 @@ class TestNodeRecommendationsE2E:
             engines = medium.get("recommendation_engines") or {}
             assert engines, "medium_term should include recommendation_engines"
 
+    def test_node_filter_term_short(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[term]": "short", "limit": 10},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendations for filter[term]=short")
+        for item in items:
+            terms = item.get("recommendation_terms") or {}
+            assert "short_term" in terms, (
+                f"filter[term]=short should scope to short_term, got {list(terms.keys())}"
+            )
+
+    def test_node_filter_term_long(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[term]": "long", "limit": 10},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendations for filter[term]=long")
+        for item in items:
+            terms = item.get("recommendation_terms") or {}
+            assert "long_term" in terms, (
+                f"filter[term]=long should scope to long_term, got {list(terms.keys())}"
+            )
+
     def test_node_filter_is_underutilized(
         self,
         ros_api_url: str,
@@ -590,6 +663,45 @@ class TestNodeRecommendationsE2E:
         for key in ("underutil_threshold", "cost_target_utilization", "locked_fields"):
             assert key in body, f"settings/node missing {key}"
         assert isinstance(body["locked_fields"], list)
+
+    def test_node_settings_put(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        settings_url = _settings_node_url(ros_api_url)
+        get_resp = http_session.get(settings_url, headers=node_auth, timeout=60)
+        if get_resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert get_resp.status_code == 200, get_resp.text
+        original = get_resp.json()
+        assert "underutil_threshold" in original
+
+        modified = dict(original)
+        modified["underutil_threshold"] = 0.29
+        try:
+            put_resp = http_session.put(
+                settings_url,
+                headers={**node_auth, "Content-Type": "application/json"},
+                json={"underutil_threshold": modified["underutil_threshold"]},
+                timeout=60,
+            )
+            assert put_resp.status_code == 200, put_resp.text
+            put_body = put_resp.json()
+            assert put_body["underutil_threshold"] == pytest.approx(0.29)
+
+            verify_resp = http_session.get(settings_url, headers=node_auth, timeout=60)
+            assert verify_resp.status_code == 200, verify_resp.text
+            assert verify_resp.json()["underutil_threshold"] == pytest.approx(0.29)
+        finally:
+            restore = {"underutil_threshold": original["underutil_threshold"]}
+            http_session.put(
+                settings_url,
+                headers={**node_auth, "Content-Type": "application/json"},
+                json=restore,
+                timeout=60,
+            )
 
     def test_node_utilization_deprecated_alias(
         self,
@@ -768,6 +880,10 @@ class TestNodeRecommendationsE2E:
         assert filtered_count <= unfiltered_count
         if unfiltered_count > 0 and filtered_count == unfiltered_count:
             pytest.skip("Tag filter did not narrow results; no matching tagged workloads")
+        assert filtered_count > 0, "tag filter should return at least one node when narrowing"
+        assert filtered_count < unfiltered_count, (
+            "filter[tag:environment]=production should narrow the node list"
+        )
         for item in filtered.get("data") or []:
             _assert_node_list_shape(item)
 
