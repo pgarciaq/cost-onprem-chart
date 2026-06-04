@@ -21,6 +21,20 @@ def _savings_summary_url(ros_api_url: str) -> str:
     )
 
 
+def _recalculate_savings_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "internal/recalculate-savings"
+    )
+
+
+def _bare_org_id(org_id: str) -> str:
+    """API bodies use org_id without the org schema prefix."""
+    if org_id.startswith("org"):
+        return org_id[3:]
+    return org_id
+
+
 def _fleet_summary_url(ros_api_url: str) -> str:
     return (
         f"{ros_api_url.rstrip('/')}/cost-management/v1/"
@@ -344,6 +358,41 @@ def test_savings_summary_group_by_tag(
     assert "meta" in data
 
 
+@pytest.mark.extended
+def test_savings_summary_filter_project_with_tag_groupby(
+    require_recommendations,
+    ros_api_url: str,
+    savings_auth: dict,
+    http_session: requests.Session,
+):
+    """Fleet savings-summary filter[project] scopes tag-grouped container rollups."""
+    namespace = "payments"
+    list_resp = http_session.get(
+        get_recommendations_endpoint(ros_api_url),
+        headers=savings_auth,
+        params={"limit": 1},
+        timeout=60,
+    )
+    if list_resp.status_code == 200 and list_resp.json().get("data"):
+        namespace = list_resp.json()["data"][0].get("project") or namespace
+
+    resp = http_session.get(
+        _savings_summary_url(ros_api_url),
+        headers=savings_auth,
+        params={
+            "group_by[tag:environment]": "*",
+            "filter[project]": namespace,
+        },
+        timeout=60,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "data" in data
+    assert "meta" in data
+    assert isinstance(data["data"], list)
+    assert "count" in data["meta"]
+
+
 @pytest.mark.component
 def test_savings_summary_group_by_idle_state(
     require_recommendations,
@@ -473,6 +522,36 @@ def test_savings_summary_kill_switch(
             check=False,
             timeout=130,
         )
+
+
+@pytest.mark.extended
+def test_recalculate_savings_endpoint_smoke(
+    ros_api_url: str,
+    org_id: str,
+    http_session: requests.Session,
+):
+    """POST /internal/recalculate-savings exists and accepts or rejects auth appropriately.
+
+    Smoke test only — does not wait for async recalculation to finish.
+    """
+    body = {
+        "org_id": _bare_org_id(org_id),
+        "recommendation_types": ["container"],
+    }
+    resp = http_session.post(
+        _recalculate_savings_url(ros_api_url),
+        json=body,
+        timeout=60,
+    )
+    assert resp.status_code in (202, 401, 404), (
+        f"unexpected status {resp.status_code}: {resp.text}"
+    )
+    if resp.status_code == 202:
+        data = resp.json()
+        assert data.get("status") == "accepted"
+        assert "recommendation_types" in data
+    elif resp.status_code == 404:
+        assert resp.json().get("status") in ("not_found", "error")
 
 
 @pytest.mark.extended
