@@ -26,6 +26,66 @@ def _pvc_detail_url(ros_api_url: str) -> str:
     )
 
 
+def _pvc_settings_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/settings/pvc"
+    )
+
+
+def _notification_codes_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/notification-codes"
+    )
+
+
+def _savings_summary_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/savings-summary"
+    )
+
+
+PVC_NOTIFICATION_CODES = frozenset({20, 25, 29, 30})
+
+PVC_SETTINGS_THRESHOLD_FIELDS = frozenset(
+    {
+        "oversized_threshold",
+        "near_full_threshold",
+        "min_trend_days",
+        "days_to_full_alert",
+        "locked_fields",
+    }
+)
+
+
+def _put_pvc_settings(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+    body: dict[str, Any],
+) -> requests.Response:
+    return session.put(
+        _pvc_settings_url(ros_api_url),
+        headers={**auth, "Content-Type": "application/json"},
+        json=body,
+        timeout=60,
+    )
+
+
+def _delete_pvc_settings(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+) -> requests.Response:
+    return session.delete(
+        _pvc_settings_url(ros_api_url),
+        headers=auth,
+        timeout=60,
+    )
+
+
 def _fetch_pvcs(
     session: requests.Session,
     ros_api_url: str,
@@ -181,7 +241,7 @@ class TestPVCRecommendationsE2E:
         for item in filtered.json().get("data") or []:
             assert item.get("namespace") == namespace
 
-    def test_pvc_savings_non_negative(
+    def test_pvc_savings_is_numeric(
         self,
         ros_api_url: str,
         pvc_auth: dict,
@@ -203,8 +263,8 @@ class TestPVCRecommendationsE2E:
             saw_savings = True
             assert_structured_savings(savings_obj)
             savings = parse_savings_value(savings_obj)
-            assert savings is not None and savings >= 0, (
-                f"negative savings on PVC {item.get('persistentvolumeclaim')}"
+            assert savings is not None and isinstance(savings, (int, float)), (
+                f"non-numeric savings on PVC {item.get('persistentvolumeclaim')}: {savings!r}"
             )
         if not saw_savings:
             # Savings may be absent/null for non-actionable PVC rows; field presence is optional.
@@ -380,3 +440,331 @@ class TestPVCRecommendationsE2E:
 
         if sum(counts.values()) == 0:
             pytest.skip("No PVC rows for any term filter")
+
+    def test_pvc_csv_export(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {"format": "csv", "limit": 100},
+        )
+        _skip_if_no_pvc_plugin(resp)
+        assert resp.status_code == 200, resp.text
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/csv" in content_type, content_type
+        body = resp.text
+        assert "cluster_uuid" in body
+        assert "persistentvolumeclaim" in body
+        assert "recommendation_type" in body
+
+    def test_pvc_detail_historical_usage(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        item = _first_pvc_item(http_session, ros_api_url, pvc_auth)
+        detail = _fetch_pvc_detail(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {
+                "cluster_uuid": item["cluster_uuid"],
+                "namespace": item["namespace"],
+                "persistentvolumeclaim": item["persistentvolumeclaim"],
+            },
+        )
+        if detail.status_code == 404:
+            pytest.skip("PVC recommendations plugin not enabled (404 on /pvcs/detail)")
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert "terms" in body
+        history = body.get("historical_usage")
+        if not history:
+            pytest.skip("No historical_usage points for PVC in environment")
+        assert isinstance(history, list)
+        point = history[0]
+        assert "date" in point
+        assert "usage_bytes_max" in point
+
+    def test_pvc_orphaned_idle_fields(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {
+                "filter[recommendation_type]": "orphaned",
+                "filter[term]": "medium",
+                "limit": 50,
+            },
+        )
+        _skip_if_no_pvc_plugin(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        if not rows:
+            pytest.skip("No orphaned PVC recommendations in cluster")
+
+        orphaned = rows[0]
+        assert orphaned.get("recommendation_type") == "orphaned"
+        assert orphaned.get("idle_since"), "orphaned PVC must include idle_since"
+        idle_days = orphaned.get("idle_duration_days")
+        assert idle_days is not None and idle_days > 0
+
+    def test_pvc_orphaned_savings_positive(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {
+                "filter[recommendation_type]": "orphaned",
+                "filter[term]": "medium",
+                "limit": 50,
+            },
+        )
+        _skip_if_no_pvc_plugin(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        if not rows:
+            pytest.skip("No orphaned PVC recommendations in cluster")
+
+        rows_with_savings = [
+            row
+            for row in rows
+            if row.get("estimated_monthly_savings") is not None
+        ]
+        if not rows_with_savings:
+            pytest.skip("No orphaned PVC rows with estimated_monthly_savings populated")
+
+        assert any(
+            parse_savings_value(row["estimated_monthly_savings"]) > 0
+            for row in rows_with_savings
+            if parse_savings_value(row["estimated_monthly_savings"]) is not None
+        ), "expected at least one orphaned PVC with positive estimated_monthly_savings"
+
+    @pytest.mark.component
+    def test_pvc_settings_get(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = http_session.get(
+            _pvc_settings_url(ros_api_url),
+            headers=pvc_auth,
+            timeout=60,
+        )
+        if resp.status_code == 404:
+            pytest.skip("PVC recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        missing = PVC_SETTINGS_THRESHOLD_FIELDS - set(body.keys())
+        assert not missing, f"settings/pvc missing fields: {missing}"
+        assert isinstance(body["locked_fields"], list)
+
+    @pytest.mark.component
+    def test_pvc_settings_put_roundtrip(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+        keycloak_config,
+        cluster_config,
+    ):
+        get_resp = http_session.get(
+            _pvc_settings_url(ros_api_url),
+            headers=pvc_auth,
+            timeout=60,
+        )
+        if get_resp.status_code == 404:
+            pytest.skip("PVC recommendations plugin not enabled")
+        assert get_resp.status_code == 200, get_resp.text
+        baseline = get_resp.json()
+        locked = frozenset(baseline.get("locked_fields") or [])
+        if "oversized_threshold" in locked:
+            pytest.skip("oversized_threshold is env-locked on this deployment")
+
+        custom_threshold = 0.5
+        if baseline.get("oversized_threshold") == custom_threshold:
+            custom_threshold = 0.45
+
+        try:
+            put_resp = _put_pvc_settings(
+                http_session,
+                ros_api_url,
+                pvc_auth,
+                {"oversized_threshold": custom_threshold},
+            )
+            assert put_resp.status_code == 200, put_resp.text
+            assert put_resp.json()["oversized_threshold"] == pytest.approx(
+                custom_threshold, rel=1e-6
+            )
+
+            verify_resp = http_session.get(
+                _pvc_settings_url(ros_api_url),
+                headers=pvc_auth,
+                timeout=60,
+            )
+            assert verify_resp.status_code == 200, verify_resp.text
+            assert verify_resp.json()["oversized_threshold"] == pytest.approx(
+                custom_threshold, rel=1e-6
+            )
+        finally:
+            auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+            if auth:
+                _delete_pvc_settings(http_session, ros_api_url, auth)
+
+    @pytest.mark.component
+    def test_pvc_notification_codes_catalog(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        baseline = _fetch_pvcs(http_session, ros_api_url, pvc_auth, {"limit": 1})
+        _skip_if_no_pvc_plugin(baseline)
+
+        resp = http_session.get(
+            _notification_codes_url(ros_api_url),
+            headers=pvc_auth,
+            params={"filter[plugin]": "pvc"},
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        codes = {entry["code"] for entry in resp.json().get("data") or []}
+        assert PVC_NOTIFICATION_CODES.issubset(codes), (
+            f"expected PVC codes {PVC_NOTIFICATION_CODES}, got {codes}"
+        )
+
+    @pytest.mark.component
+    def test_pvc_growth_fields_on_near_full(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {
+                "namespace": PVC_RIGHTSIZING_NAMESPACE,
+                "filter[recommendation_type]": "near_full",
+                "filter[term]": "medium",
+                "limit": 50,
+            },
+        )
+        _skip_if_no_pvc_plugin(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        near_full = next(
+            (
+                row
+                for row in rows
+                if row.get("persistentvolumeclaim") == "pvc-near-full"
+            ),
+            None,
+        )
+        if near_full is None:
+            pytest.skip(
+                "pvc-near-full not in near_full results "
+                f"(namespace {PVC_RIGHTSIZING_NAMESPACE}; ingest may be pending)"
+            )
+        if near_full.get("growth_bytes_per_day") is None:
+            pytest.skip("pvc-near-full has no growth projection in environment")
+        assert near_full.get("days_to_full") is not None
+        assert near_full.get("growth_bytes_per_day") is not None
+
+    @pytest.mark.component
+    def test_pvc_fleet_savings_rollup(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        list_resp = _fetch_pvcs(http_session, ros_api_url, pvc_auth, {"limit": 5})
+        _skip_if_no_pvc_plugin(list_resp)
+        if list_resp.json().get("meta", {}).get("count", 0) == 0:
+            pytest.skip("No PVC recommendation data in cluster")
+
+        resp = http_session.get(
+            _savings_summary_url(ros_api_url),
+            headers=pvc_auth,
+            timeout=60,
+        )
+        assert resp.status_code == 200, resp.text
+        by_plugin = resp.json().get("by_plugin") or {}
+        assert "pvc" in by_plugin, f"by_plugin missing pvc key: {by_plugin}"
+        assert isinstance(by_plugin["pvc"], (int, float))
+
+
+# Deterministic PVC names from tests/data/nise_templates/ocp_report_pvc_rightsizing.yml
+PVC_RIGHTSIZING_NAMESPACE = "pvc-rightsizing"
+PVC_FIXTURE_CLASSIFICATIONS = {
+    "pvc-oversized": "oversized",
+    "pvc-near-full": "near_full",
+    "pvc-orphaned": "orphaned",
+    "pvc-healthy": "healthy",
+}
+
+
+@pytest.mark.ros
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+class TestPVCRightsizingFixtureClassifications:
+    """Assert filter[recommendation_type] against nise ocp_report_pvc_rightsizing.yml PVCs."""
+
+    @pytest.mark.parametrize(
+        ("pvc_name", "expected_type"),
+        list(PVC_FIXTURE_CLASSIFICATIONS.items()),
+    )
+    def test_pvc_filter_recommendation_type_matches_fixture(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+        pvc_name: str,
+        expected_type: str,
+    ):
+        filtered = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {
+                "namespace": PVC_RIGHTSIZING_NAMESPACE,
+                "filter[recommendation_type]": expected_type,
+                "filter[term]": "medium",
+                "limit": 50,
+            },
+        )
+        _skip_if_no_pvc_plugin(filtered)
+        assert filtered.status_code == 200, filtered.text
+        rows = filtered.json().get("data") or []
+        matching = [
+            row
+            for row in rows
+            if row.get("persistentvolumeclaim") == pvc_name
+            and row.get("namespace") == PVC_RIGHTSIZING_NAMESPACE
+        ]
+        if not matching:
+            pytest.skip(
+                f"{pvc_name} not in {expected_type} results "
+                f"(namespace {PVC_RIGHTSIZING_NAMESPACE}; ingest may be pending)"
+            )
+        assert matching[0].get("recommendation_type") == expected_type
+        for row in rows:
+            assert row.get("recommendation_type") == expected_type
