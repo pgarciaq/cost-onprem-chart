@@ -136,7 +136,7 @@ class TestIdleDetectionFlowE2E:
         assert resp.status_code == 200, resp.text
         data = resp.json().get("data") or []
         if not data:
-            return
+            pytest.skip("No idle containers — cannot verify idle response field structure")
         row = data[0]
         for field in _IDLE_RESPONSE_FIELDS:
             assert field in row, f"Missing {field} on idle row: {row.keys()}"

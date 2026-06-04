@@ -48,6 +48,35 @@ generators:
                   mem_usage_gig:
                     full_period: 2
                   labels: label_ros:ros_A21
+            project-ros-idle:
+              pods:
+                - pod:
+                  pod_name: pod-ros-idle1
+                  cpu_request: 10
+                  cpu_limit: 20
+                  mem_request_gig: 8
+                  mem_limit_gig: 16
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.01
+                  mem_usage_gig:
+                    full_period: 0.05
+                  labels: label_ros:ros_idle1
+            project-ros-oom:
+              pods:
+                - pod:
+                  pod_name: pod-ros-oom1
+                  cpu_request: 2
+                  cpu_limit: 4
+                  mem_request_gig: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 3
+                  mem_usage_gig:
+                    full_period: 6
+                  oom_count: 5
+                  labels: label_ros:ros_oom1
         - node:
           node_name: node-ros-B
           cpu_cores: 20
