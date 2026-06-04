@@ -404,8 +404,9 @@ class TestContainerDetailE2E:
         if resp.status_code == 400:
             body = resp.json()
             if "invalid character" in body.get("message", ""):
-                pytest.skip(
-                    f"Sample {item_field} contains invalid filter characters: {filter_value!r}"
+                pytest.xfail(
+                    "API rejects valid workload names containing special characters — "
+                    "filter validation too strict"
                 )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -428,9 +429,9 @@ class TestContainerDetailE2E:
                 # API may do prefix/substring matching for certain fields
                 # (e.g. filter[workload_type]=deployment also matches deploymentconfig)
                 if str(filter_value).lower() in str(actual).lower():
-                    pytest.skip(
-                        f"API filter[{item_field}]={filter_value!r} uses prefix/substring "
-                        f"matching (returned {actual!r}) — not an exact-match filter"
+                    pytest.xfail(
+                        "API filter[workload_type] does prefix/substring matching "
+                        "instead of exact match"
                     )
                 pytest.fail(
                     f"Filter mismatch: expected {item_field}={filter_value!r}, "
@@ -574,21 +575,26 @@ class TestContainerDetailE2E:
         container_auth: dict,
         http_session: requests.Session,
     ):
-        resp = http_session.get(
-            get_recommendations_endpoint(ros_api_url),
-            headers=container_auth,
-            params={"filter[idle_state]": "idle", "limit": 5},
-            timeout=60,
-        )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        _assert_paginated_envelope(body)
-        items = body.get("data") or []
-        if not items:
-            pytest.skip("No idle containers on cluster")
-        assert len(items) > 0
-        for item in items:
-            assert item.get("idle_state") == "idle"
+        """Containers filtered by idle_state return rows matching the applied state."""
+        endpoint = get_recommendations_endpoint(ros_api_url)
+        for state in ("idle", "zombie"):
+            resp = http_session.get(
+                endpoint,
+                headers=container_auth,
+                params={"filter[idle_state]": state, "limit": 5},
+                timeout=60,
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            _assert_paginated_envelope(body)
+            items = body.get("data") or []
+            if items:
+                for item in items:
+                    assert item.get("idle_state") == state, (
+                        f"Expected idle_state={state!r}, got {item.get('idle_state')!r}"
+                    )
+                return
+        pytest.skip("No idle or zombie containers on cluster")
 
     def test_container_filter_idle_state_zombie(
         self,
@@ -1004,7 +1010,9 @@ class TestContainerDetailE2E:
             None,
         )
         if savings_item is None:
-            pytest.skip("No containers with estimated_monthly_savings in sample")
+            pytest.xfail(
+                "No cost model configured — savings require Koku cost model assignment"
+            )
 
         savings = savings_item["estimated_monthly_savings"]
         assert isinstance(savings, dict)
