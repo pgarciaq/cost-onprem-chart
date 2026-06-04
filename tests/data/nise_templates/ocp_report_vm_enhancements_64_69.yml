@@ -1,0 +1,73 @@
+---
+# OCP Virtualization ROS usage for VM enhancement notification code E2E (64-69).
+# Generates ocp_ros_vm_usage.csv (15-minute intervals) via OCPVirtualMachineGenerator.
+#
+# Requires 28-day date range for power-off (14 idle days) and storage cold (14 low-io days).
+# Use with generate_nise_data(..., iqe_template="ocp_report_vm_enhancements_64_69.yml", include_ros=True)
+generators:
+  - OCPVirtualMachineGenerator:
+      start_date: last_month
+      end_date: today
+      vms:
+        # Power-off schedule (notification 64): mostly idle, active every 4th day
+        - vm_name: power-off-candidate-vm-01
+          namespace: vm-enhancements-64-69
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 100
+          power_off_candidate: true
+        # Network QoS SR-IOV (notification 65): high throughput + packet drops
+        - vm_name: network-qos-sriov-vm-01
+          namespace: vm-enhancements-64-69
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 16
+          disk_gib: 200
+          network_heavy: true
+          network_qos_sriov: true
+        # Network QoS DPDK (notification 66): high PPS + small packets
+        - vm_name: network-qos-dpdk-vm-01
+          namespace: vm-enhancements-64-69
+          node_name: worker-3
+          guest_os: linux
+          guest_agent: true
+          vcpu: 8
+          memory_gib: 16
+          disk_gib: 200
+          network_heavy: true
+          network_qos_dpdk: true
+        # Storage tiering cold (notification 67): sustained minimal I/O
+        - vm_name: storage-tier-cold-vm-01
+          namespace: vm-enhancements-64-69
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 2
+          memory_gib: 4
+          disk_gib: 500
+          low_io: true
+        # Storage tiering IOPS (notification 68): random high IOPS
+        - vm_name: storage-tier-iops-vm-01
+          namespace: vm-enhancements-64-69
+          node_name: worker-2
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 200
+          random_io: true
+        # Storage tiering throughput (notification 69): sequential high throughput
+        - vm_name: storage-tier-throughput-vm-01
+          namespace: vm-enhancements-64-69
+          node_name: worker-3
+          guest_os: linux
+          guest_agent: true
+          vcpu: 4
+          memory_gib: 8
+          disk_gib: 500
+          sequential_io: true
