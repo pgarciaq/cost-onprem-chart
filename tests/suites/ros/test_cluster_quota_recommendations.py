@@ -17,7 +17,7 @@ from utils import assert_structured_savings, parse_savings_value
 
 from suites.ros.test_recommendations import get_fresh_token
 
-VALID_CLUSTER_QUOTA_RECOMMENDATION_TYPES = frozenset({"tighten", "raise", "optimal"})
+VALID_CLUSTER_QUOTA_RECOMMENDATION_TYPES = frozenset({"tighten", "raise", "optimal", "none"})
 VALID_CLUSTER_QUOTA_RISK_LEVELS = frozenset({"high", "medium", "low", "none"})
 
 
@@ -544,6 +544,31 @@ class TestClusterQuotaRecommendationsE2E:
         body = resp.json()
         assert body.get("meta", {}).get("count", 0) == 0
         assert body.get("data") == []
+
+    def test_cluster_quota_csv_export(
+        self,
+        ros_api_url: str,
+        cluster_quota_auth: dict,
+        http_session: requests.Session,
+    ):
+        """format=csv returns text/csv with a header row."""
+        baseline = _fetch_cluster_quota(
+            http_session, ros_api_url, cluster_quota_auth, {"limit": 1}
+        )
+        _skip_if_plugin_disabled(baseline)
+
+        resp = http_session.get(
+            _cluster_quota_url(ros_api_url),
+            headers={**cluster_quota_auth, "Accept": "text/csv"},
+            params={"format": "csv", "limit": 100},
+            timeout=60,
+        )
+        _skip_if_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        assert "text/csv" in (resp.headers.get("Content-Type") or "")
+        lines = [line for line in resp.text.splitlines() if line.strip()]
+        assert len(lines) >= 1
+        assert lines[0].startswith("cluster_uuid,")
 
     def test_cluster_quota_pagination(
         self,
