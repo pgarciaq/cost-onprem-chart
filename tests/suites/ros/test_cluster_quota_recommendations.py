@@ -28,6 +28,13 @@ def _cluster_quota_url(ros_api_url: str) -> str:
     )
 
 
+def _cluster_quota_detail_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/cluster-quota/detail"
+    )
+
+
 def _fetch_cluster_quota(
     session: requests.Session,
     ros_api_url: str,
@@ -752,12 +759,8 @@ class TestClusterQuotaRecommendationsE2E:
         cluster_uuid = row["cluster_uuid"]
         crq_name = row["cluster_quota_name"]
 
-        detail_url = ros_api_url.rstrip("/").replace(
-            "/recommendations/openshift/cluster-quota",
-            "/recommendations/openshift/cluster-quota/detail",
-        )
         detail = http_session.get(
-            detail_url,
+            _cluster_quota_detail_url(ros_api_url),
             headers=cluster_quota_auth,
             params={"cluster_uuid": cluster_uuid, "cluster_quota_name": crq_name},
             timeout=60,
@@ -783,12 +786,8 @@ class TestClusterQuotaRecommendationsE2E:
         cluster_quota_auth: dict,
         http_session: requests.Session,
     ):
-        detail_url = ros_api_url.rstrip("/").replace(
-            "/recommendations/openshift/cluster-quota",
-            "/recommendations/openshift/cluster-quota/detail",
-        )
         detail = http_session.get(
-            detail_url,
+            _cluster_quota_detail_url(ros_api_url),
             headers=cluster_quota_auth,
             params={
                 "cluster_uuid": "00000000-0000-0000-0000-000000000099",

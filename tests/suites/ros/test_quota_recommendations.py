@@ -28,6 +28,13 @@ def _quota_url(ros_api_url: str) -> str:
     )
 
 
+def _quota_detail_url(ros_api_url: str) -> str:
+    return (
+        f"{ros_api_url.rstrip('/')}/cost-management/v1/"
+        "recommendations/openshift/quota/detail"
+    )
+
+
 def _fetch_quota(
     session: requests.Session,
     ros_api_url: str,
@@ -610,12 +617,8 @@ class TestQuotaRecommendationsE2E:
         if row.get("quota_name"):
             params["quota_name"] = row["quota_name"]
 
-        detail_url = ros_api_url.rstrip("/").replace(
-            "/recommendations/openshift/quota",
-            "/recommendations/openshift/quota/detail",
-        )
         detail = http_session.get(
-            detail_url,
+            _quota_detail_url(ros_api_url),
             headers=quota_auth,
             params=params,
             timeout=60,
