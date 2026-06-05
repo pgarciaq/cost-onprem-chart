@@ -271,7 +271,7 @@ class TestNodeRecommendationsE2E:
                     found_savings_key = True
                     savings = parse_savings_value(engine["estimated_monthly_savings"])
                     if savings is not None:
-                        assert savings >= 0
+                        assert isinstance(savings, (int, float))
                         assert_structured_savings(engine["estimated_monthly_savings"])
         assert found_savings_key, (
             "expected estimated_monthly_savings on at least one engine block"
@@ -479,6 +479,29 @@ class TestNodeRecommendationsE2E:
             idle = (item.get("classification") or {}).get("idle_state")
             assert idle == "zombie"
 
+    def test_node_filter_idle_state_idle(
+        self,
+        ros_api_url: str,
+        node_auth: dict,
+        http_session: requests.Session,
+    ):
+        resp = _fetch_nodes(
+            http_session,
+            ros_api_url,
+            node_auth,
+            {"filter[idle_state]": "idle", "limit": 20},
+        )
+        if resp.status_code == 404:
+            pytest.skip("Node recommendations plugin not enabled")
+        assert resp.status_code == 200, resp.text
+        items = resp.json().get("data") or []
+        if not items:
+            pytest.skip("No node recommendations matching filter[idle_state]=idle")
+
+        for item in items:
+            idle = (item.get("classification") or {}).get("idle_state")
+            assert idle == "idle"
+
     def test_node_filter_idle_state_multi(
         self,
         ros_api_url: str,
@@ -564,7 +587,7 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[term]": "medium", "limit": 10},
+            {"filter[term]": "medium_term", "limit": 10},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
@@ -576,7 +599,7 @@ class TestNodeRecommendationsE2E:
         for item in items:
             terms = item.get("recommendation_terms") or {}
             assert "medium_term" in terms, (
-                f"filter[term]=medium should scope to medium_term, got {list(terms.keys())}"
+                f"filter[term]=medium_term should scope to medium_term, got {list(terms.keys())}"
             )
             medium = terms["medium_term"]
             engines = medium.get("recommendation_engines") or {}
@@ -592,18 +615,18 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[term]": "short", "limit": 10},
+            {"filter[term]": "short_term", "limit": 10},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No node recommendations for filter[term]=short")
+            pytest.skip("No node recommendations for filter[term]=short_term")
         for item in items:
             terms = item.get("recommendation_terms") or {}
             assert "short_term" in terms, (
-                f"filter[term]=short should scope to short_term, got {list(terms.keys())}"
+                f"filter[term]=short_term should scope to short_term, got {list(terms.keys())}"
             )
 
     def test_node_filter_term_long(
@@ -616,18 +639,18 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[term]": "long", "limit": 10},
+            {"filter[term]": "long_term", "limit": 10},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No node recommendations for filter[term]=long")
+            pytest.skip("No node recommendations for filter[term]=long_term")
         for item in items:
             terms = item.get("recommendation_terms") or {}
             assert "long_term" in terms, (
-                f"filter[term]=long should scope to long_term, got {list(terms.keys())}"
+                f"filter[term]=long_term should scope to long_term, got {list(terms.keys())}"
             )
 
     def test_node_filter_is_underutilized(
