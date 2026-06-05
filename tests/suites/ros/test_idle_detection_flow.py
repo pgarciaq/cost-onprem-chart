@@ -10,6 +10,7 @@ import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
+from utils import parse_savings_value
 
 
 def _savings_summary_url(ros_api_url: str) -> str:
@@ -208,13 +209,13 @@ class TestIdleDetectionFlowE2E:
         if not items:
             pytest.skip("No containers on cluster to verify waste sort")
         wastes = [
-            (item.get("estimated_monthly_waste") or {}).get("value", 0) or 0
+            parse_savings_value(item.get("estimated_monthly_waste")) or 0.0
             for item in items
         ]
         if len(wastes) > 1:
             for i in range(len(wastes) - 1):
                 assert wastes[i] >= wastes[i + 1], (
-                    f"Sort violated at index {i}: {wastes[i]} < {wastes[i+1]}"
+                    f"Sort violated at index {i}: {wastes[i]} < {wastes[i + 1]}"
                 )
 
     def test_namespace_filter_idle_state(

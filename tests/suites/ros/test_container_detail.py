@@ -14,6 +14,7 @@ import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
+from utils import assert_structured_savings
 
 
 def _fresh_auth(
@@ -122,6 +123,27 @@ def _first_container_item(
     if not items:
         pytest.skip("No container recommendations in cluster")
     return items[0]
+
+
+def _container_list_savings(item: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Savings live under recommendations.estimated_monthly_savings in list responses."""
+    recs = item.get("recommendations") or {}
+    if isinstance(recs, dict):
+        savings = recs.get("estimated_monthly_savings")
+        if savings:
+            return savings
+    legacy = item.get("estimated_monthly_savings")
+    return legacy if isinstance(legacy, dict) else None
+
+
+def _container_detail_savings(body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    recs = body.get("recommendations") or {}
+    if isinstance(recs, dict):
+        savings = recs.get("estimated_monthly_savings")
+        if savings:
+            return savings
+    legacy = body.get("estimated_monthly_savings")
+    return legacy if isinstance(legacy, dict) else None
 
 
 def _assert_filtered_items_match(
@@ -993,18 +1015,16 @@ class TestContainerDetailE2E:
             pytest.skip("No container recommendations in cluster")
 
         savings_item = next(
-            (item for item in items if item.get("estimated_monthly_savings")),
+            (item for item in items if _container_list_savings(item)),
             None,
         )
-        if savings_item is None:
-            pytest.xfail(
-                "No cost model configured — savings require Koku cost model assignment"
-            )
+        assert savings_item is not None, (
+            "Expected at least one container with estimated_monthly_savings after cost model assignment"
+        )
 
-        savings = savings_item["estimated_monthly_savings"]
-        assert isinstance(savings, dict)
-        assert "value" in savings
-        assert "units" in savings
+        savings = _container_list_savings(savings_item)
+        assert savings is not None
+        assert_structured_savings(savings)
         assert savings["units"] in ("USD", "EUR", "GBP", "AUD", "CAD", "JPY", "CHF", "NZD")
 
         rec_id = savings_item.get("id")
@@ -1015,10 +1035,9 @@ class TestContainerDetailE2E:
                 timeout=60,
             )
             assert detail_resp.status_code == 200, detail_resp.text
-            detail_savings = detail_resp.json().get("estimated_monthly_savings")
+            detail_savings = _container_detail_savings(detail_resp.json())
             if detail_savings:
-                assert "value" in detail_savings
-                assert "units" in detail_savings
+                assert_structured_savings(detail_savings)
 
     def test_container_notification_codes_catalog(
         self,
