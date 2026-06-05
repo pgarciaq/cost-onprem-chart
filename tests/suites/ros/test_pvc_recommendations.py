@@ -441,6 +441,28 @@ class TestPVCRecommendationsE2E:
         if sum(counts.values()) == 0:
             pytest.skip("No PVC rows for any term filter")
 
+    def test_pvc_filter_by_term_short_term_alias(
+        self,
+        ros_api_url: str,
+        pvc_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[term]=short_term must resolve to DB term short."""
+        _first_pvc_item(http_session, ros_api_url, pvc_auth)
+
+        resp = _fetch_pvcs(
+            http_session,
+            ros_api_url,
+            pvc_auth,
+            {"filter[term]": "short_term", "limit": 50},
+        )
+        _skip_if_no_pvc_plugin(resp)
+        assert resp.status_code == 200, resp.text
+        for row in resp.json().get("data") or []:
+            assert row.get("term") == "short", (
+                f"filter[term]=short_term returned row with term={row.get('term')!r}"
+            )
+
     def test_pvc_csv_export(
         self,
         ros_api_url: str,
