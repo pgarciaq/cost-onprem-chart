@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any, Callable, Optional
 
 import pytest
 import requests
 
-from conftest import obtain_user_jwt_token_for
+from suites.ros.test_container_detail import (
+    _assert_container_list_engine_filter,
+    _assert_paginated_envelope,
+)
+from suites.ros.test_recommendations import get_fresh_token
+
+_STALE_DATA_NOTIFICATION_CODE = 2
 
 
 def _namespaces_url(ros_api_url: str) -> str:
@@ -20,6 +27,10 @@ def _namespaces_url(ros_api_url: str) -> str:
 
 def _namespace_detail_url(ros_api_url: str, recommendation_id: str) -> str:
     return f"{_namespaces_url(ros_api_url)}/{recommendation_id}"
+
+
+def _namespace_history_url(ros_api_url: str, recommendation_id: str) -> str:
+    return f"{_namespace_detail_url(ros_api_url, recommendation_id)}/history"
 
 
 def _fetch_namespaces(
@@ -36,17 +47,128 @@ def _fetch_namespaces(
     )
 
 
-@pytest.fixture
-def namespace_auth(keycloak_config, cluster_config):
-    """Use a user password-grant JWT (not operator client_credentials).
+def _item_has_stale_data_notification(item: dict[str, Any]) -> bool:
+    """True when STALE_DATA (code 2) appears on namespace list recommendations."""
+    recs = item.get("recommendations") or {}
+    top_notifs = recs.get("notifications") or {}
+    for key, entry in top_notifs.items():
+        if str(key) == str(_STALE_DATA_NOTIFICATION_CODE):
+            return True
+        if isinstance(entry, dict) and entry.get("code") == _STALE_DATA_NOTIFICATION_CODE:
+            return True
 
-    Operator SA tokens are rejected or return empty ROS lists through the gateway
-    when insights-rbac is disabled and ENHANCED_ORG_ADMIN relies on org-admin.
-    """
-    token = obtain_user_jwt_token_for(
-        keycloak_config, cluster_config, username="user_dev", password="redhat123",
-    )
-    return token.authorization_header
+    terms = recs.get("recommendation_terms") or {}
+    for term in terms.values():
+        if not isinstance(term, dict):
+            continue
+        term_notifs = term.get("notifications") or {}
+        for key, entry in term_notifs.items():
+            if str(key) == str(_STALE_DATA_NOTIFICATION_CODE):
+                return True
+            if isinstance(entry, dict) and entry.get("code") == _STALE_DATA_NOTIFICATION_CODE:
+                return True
+        engines = term.get("recommendation_engines") or {}
+        for engine_key in ("cost", "performance"):
+            eng = engines.get(engine_key) or {}
+            codes = eng.get("notification_codes") or []
+            if _STALE_DATA_NOTIFICATION_CODE in codes:
+                return True
+            for key, entry in (eng.get("notifications") or {}).items():
+                if str(key) == str(_STALE_DATA_NOTIFICATION_CODE):
+                    return True
+                if isinstance(entry, dict) and entry.get("code") == _STALE_DATA_NOTIFICATION_CODE:
+                    return True
+    return False
+
+
+def _item_is_stale(item: dict[str, Any]) -> bool:
+    """Resolve staleness from item.stale when present, else STALE_DATA notifications."""
+    if "stale" in item:
+        stale_val = item.get("stale")
+        if stale_val is None:
+            return False
+        return bool(stale_val)
+    return _item_has_stale_data_notification(item)
+
+
+def _item_is_fresh(item: dict[str, Any]) -> bool:
+    """Non-stale: explicit stale=false/null or no STALE_DATA notification."""
+    if "stale" in item:
+        stale_val = item.get("stale")
+        return stale_val is False or stale_val is None
+    return not _item_has_stale_data_notification(item)
+
+
+def _assert_namespace_items_cluster(
+    items: list[dict[str, Any]], cluster_uuid: str
+) -> None:
+    for item in items:
+        assert item.get("cluster_uuid") == cluster_uuid, (
+            f"Expected cluster_uuid={cluster_uuid!r}, got {item.get('cluster_uuid')!r}"
+        )
+
+
+def _assert_namespace_items_fresh(items: list[dict[str, Any]]) -> None:
+    for item in items:
+        assert _item_is_fresh(item), (
+            f"filter[stale]=false should exclude stale rows; got stale indicators on {item.get('id')!r}"
+        )
+
+
+def _assert_namespace_items_stale(items: list[dict[str, Any]]) -> None:
+    for item in items:
+        assert _item_is_stale(item), (
+            f"filter[stale]=only should return only stale rows; item {item.get('id')!r} is not stale"
+        )
+
+
+def _namespace_project_name(item: dict[str, Any]) -> str:
+    return item.get("project") or item.get("namespace") or ""
+
+
+def _parse_last_reported(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized)
+
+
+def _assert_sorted(
+    items: list[dict[str, Any]],
+    key_fn: Callable[[dict[str, Any]], Any],
+    *,
+    descending: bool,
+) -> None:
+    keys = [key_fn(item) for item in items]
+    if len(keys) < 2:
+        return
+    for i in range(len(keys) - 1):
+        left, right = keys[i], keys[i + 1]
+        if descending:
+            assert left >= right, f"Expected descending order; {left!r} before {right!r}"
+        else:
+            assert left <= right, f"Expected ascending order; {left!r} before {right!r}"
+
+
+def _history_rows_match_engine(rows: list[dict[str, Any]], engine: str) -> None:
+    for row in rows:
+        assert row.get("recommendation_type") == engine, (
+            f"filter[engine]={engine} must omit other engines; got {row.get('recommendation_type')!r}"
+        )
+
+
+def _history_rows_match_term(rows: list[dict[str, Any]], term: str) -> None:
+    for row in rows:
+        assert row.get("term") == term, (
+            f"filter[term]={term} must omit other terms; got {row.get('term')!r}"
+        )
+
+
+@pytest.fixture
+def namespace_auth(keycloak_config, cluster_config, http_session):
+    """Get a JWT token using the same client-credentials flow as container tests."""
+    auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+    if not auth:
+        pytest.skip("Could not obtain JWT token")
+    return auth
 
 
 @pytest.mark.ros
@@ -61,6 +183,7 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
+        """Smoke test: namespace list endpoint returns a valid paginated envelope (count may be 0)."""
         resp = _fetch_namespaces(http_session, ros_api_url, namespace_auth, {"limit": 10})
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -77,10 +200,11 @@ class TestNamespaceRecommendationsE2E:
         resp = _fetch_namespaces(http_session, ros_api_url, namespace_auth, {"limit": 5})
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        if body.get("meta", {}).get("count", 0) == 0:
+        data = body.get("data") or []
+        if not data:
             pytest.skip("No namespace recommendation data in cluster")
 
-        item = body["data"][0]
+        item = data[0]
         namespace = item.get("project") or item.get("namespace")
         cluster = item.get("cluster_uuid") or item.get("cluster")
         assert namespace, "namespace list item must include project/namespace"
@@ -145,18 +269,24 @@ class TestNamespaceRecommendationsE2E:
         if not items:
             pytest.skip("No namespace recommendation data in cluster")
 
-        cluster = items[0].get("cluster_uuid") or items[0].get("cluster_alias")
-        if not cluster:
-            pytest.skip("Namespace item missing cluster identifier for filter test")
+        cluster_uuid = items[0].get("cluster_uuid")
+        if not cluster_uuid:
+            pytest.skip("Namespace item missing cluster_uuid for filter test")
 
         filtered = _fetch_namespaces(
             http_session,
             ros_api_url,
             namespace_auth,
-            {"cluster": cluster, "limit": 20},
+            {"filter[cluster]": cluster_uuid, "limit": 20},
         )
         assert filtered.status_code == 200, filtered.text
-        assert isinstance(filtered.json().get("data"), list)
+        body = filtered.json()
+        _assert_paginated_envelope(body)
+        filtered_items = body.get("data") or []
+        if not filtered_items:
+            pytest.skip(f"No namespace recommendations for cluster {cluster_uuid}")
+
+        _assert_namespace_items_cluster(filtered_items, cluster_uuid)
 
     def test_namespace_pagination(
         self,
@@ -164,23 +294,40 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
+        """Keyset (cursor) pagination: page2 returns new results and respects limit."""
+        limit = 3
         first = _fetch_namespaces(
-            http_session, ros_api_url, namespace_auth, {"limit": 2, "offset": 0}
+            http_session, ros_api_url, namespace_auth, {"limit": limit}
         )
         assert first.status_code == 200, first.text
-        total = first.json().get("meta", {}).get("count", 0)
+        body1 = first.json()
+        total = body1.get("meta", {}).get("count", 0)
         if total == 0:
             pytest.skip("No namespace recommendation data in cluster")
-        if total <= 2:
-            pytest.skip("Need more than two namespace recommendations for pagination")
+        if total <= limit:
+            pytest.skip(f"Need more than {limit} namespace recommendations for pagination")
 
-        second = _fetch_namespaces(
-            http_session, ros_api_url, namespace_auth, {"limit": 2, "offset": 2}
-        )
+        links = body1.get("links", {})
+        next_url = links.get("next")
+        if not next_url:
+            pytest.skip("No 'next' link in first page — single page result")
+
+        # Build absolute URL from relative next link
+        if not next_url.startswith("http"):
+            base = _namespaces_url(ros_api_url)
+            origin = base.rsplit("/api/", 1)[0]
+            next_url = f"{origin}{next_url}"
+
+        second = http_session.get(next_url, headers=namespace_auth, timeout=60)
         assert second.status_code == 200, second.text
-        page1_ids = {item.get("id") for item in first.json()["data"]}
-        page2_ids = {item.get("id") for item in second.json()["data"]}
-        assert page1_ids.isdisjoint(page2_ids)
+        body2 = second.json()
+        assert len(body2.get("data", [])) <= limit, "Page 2 exceeds limit"
+        assert len(body2.get("data", [])) > 0, "Page 2 is empty despite total > limit"
+
+        page1_ids = {item.get("id") for item in body1["data"]}
+        page2_ids = {item.get("id") for item in body2["data"]}
+        overlap = page1_ids & page2_ids
+        assert not overlap, f"Keyset pagination returned duplicate IDs across pages: {overlap}"
 
     def test_namespace_filter_by_engine(
         self,
@@ -188,14 +335,15 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
+        """filter[engine]=cost omits performance from recommendation_engines on each row."""
         resp = _fetch_namespaces(
             http_session,
             ros_api_url,
             namespace_auth,
-            {"engine": "cost", "limit": 5},
+            {"filter[engine]": "cost", "limit": 5},
         )
         assert resp.status_code == 200, resp.text
-        assert "data" in resp.json()
+        _assert_container_list_engine_filter(resp.json(), "cost")
 
     def test_namespace_filter_engine_omission(
         self,
@@ -204,8 +352,6 @@ class TestNamespaceRecommendationsE2E:
         http_session: requests.Session,
     ):
         """filter[engine] returns only the selected engine under recommendation_engines."""
-        from suites.ros.test_container_detail import _assert_container_list_engine_filter
-
         resp = _fetch_namespaces(
             http_session,
             ros_api_url,
@@ -221,6 +367,7 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
+        """filter[stale]=false excludes stale rows (default list behavior)."""
         resp = _fetch_namespaces(
             http_session,
             ros_api_url,
@@ -229,9 +376,12 @@ class TestNamespaceRecommendationsE2E:
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert "meta" in body
-        assert "data" in body
-        assert isinstance(body["data"], list)
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        if not items:
+            pytest.skip("No namespace recommendations for this cluster")
+
+        _assert_namespace_items_fresh(items)
 
     def test_namespace_filter_stale_true(
         self,
@@ -239,6 +389,16 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
+        """filter[stale]=true includes stale and fresh rows (count >= fresh-only list)."""
+        fresh_resp = _fetch_namespaces(
+            http_session,
+            ros_api_url,
+            namespace_auth,
+            {"filter[stale]": "false", "limit": 10},
+        )
+        assert fresh_resp.status_code == 200, fresh_resp.text
+        fresh_count = fresh_resp.json().get("meta", {}).get("count", 0)
+
         resp = _fetch_namespaces(
             http_session,
             ros_api_url,
@@ -247,9 +407,12 @@ class TestNamespaceRecommendationsE2E:
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert "meta" in body
-        assert "data" in body
-        assert isinstance(body["data"], list)
+        _assert_paginated_envelope(body)
+        inclusive_count = body.get("meta", {}).get("count", 0)
+        assert inclusive_count >= fresh_count, (
+            f"filter[stale]=true count ({inclusive_count}) should be >= "
+            f"filter[stale]=false count ({fresh_count})"
+        )
 
     def test_namespace_filter_stale_only(
         self,
@@ -257,6 +420,7 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
+        """filter[stale]=only returns rows marked stale in the database."""
         resp = _fetch_namespaces(
             http_session,
             ros_api_url,
@@ -265,9 +429,12 @@ class TestNamespaceRecommendationsE2E:
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert "meta" in body
-        assert "data" in body
-        assert isinstance(body["data"], list)
+        _assert_paginated_envelope(body)
+        items = body.get("data") or []
+        assert items, (
+            "Expected at least one stale namespace (clusters.last_reported_at >48h old or stale=true)"
+        )
+        _assert_namespace_items_stale(items)
 
     def test_namespace_filter_tag(
         self,
@@ -275,26 +442,201 @@ class TestNamespaceRecommendationsE2E:
         namespace_auth: dict,
         http_session: requests.Session,
     ):
-        baseline = _fetch_namespaces(http_session, ros_api_url, namespace_auth, {"limit": 5})
+        """filter[tag:environment]=production matches namespaces with that Koku tag."""
+        tag_key = "environment"
+        tag_value = "production"
+        baseline = _fetch_namespaces(http_session, ros_api_url, namespace_auth, {"limit": 100})
         assert baseline.status_code == 200, baseline.text
         unfiltered_count = baseline.json().get("meta", {}).get("count", 0)
-        if unfiltered_count == 0:
-            pytest.skip("No namespace recommendation data in cluster")
+        assert unfiltered_count > 0, "No namespace recommendation data in cluster"
 
         resp = _fetch_namespaces(
             http_session,
             ros_api_url,
             namespace_auth,
-            {"filter[tag:environment]": "production", "limit": 10},
+            {f"filter[tag:{tag_key}]": tag_value, "limit": 100},
         )
         if resp.status_code == 400:
-            pytest.skip("Tag filtering not enabled or invalid tag key")
+            pytest.fail(f"Tag filtering rejected filter[tag:{tag_key}]={tag_value}: {resp.text}")
         assert resp.status_code == 200, resp.text
         filtered = resp.json()
+        _assert_paginated_envelope(filtered)
+        baseline_items = baseline.json().get("data") or []
+        filtered_items = filtered.get("data") or []
+        assert filtered_items, (
+            f"No namespaces match filter[tag:{tag_key}]={tag_value}; "
+            "enable ROS_TAGS_ENABLED, ROS_TAGS_SOURCE=db, and org1234567.reporting_ocptags_values "
+            "in the ROS PostgreSQL database (costonprem_ros)"
+        )
+        if len(filtered_items) >= len(baseline_items):
+            pytest.fail(
+                f"Tag filter did not narrow list items ({len(filtered_items)} vs {len(baseline_items)}); "
+                "check ROS_TAGS_ENABLED=true and reporting_ocptags_values for org1234567"
+            )
+        # meta.count should match the filtered page; ros-ocp-backend uses the filtered
+        # distinct subquery count when tag (or other) filters are active.
         filtered_count = filtered.get("meta", {}).get("count", 0)
-        assert filtered_count <= unfiltered_count
-        if unfiltered_count > 0 and filtered_count == unfiltered_count:
-            pytest.skip("Tag filter did not narrow results; no matching tagged namespaces")
-        if filtered_count == 0:
-            pytest.skip("No namespaces match filter[tag:environment]=production")
-        assert filtered_count < unfiltered_count
+        assert filtered_count == len(filtered_items), (
+            f"meta.count ({filtered_count}) should match returned items ({len(filtered_items)})"
+        )
+        # NISE ocp_report_ros_0.yml tags only project-ros-A1 with environment:production.
+        for item in filtered_items:
+            assert item.get("project") == "project-ros-A1"
+
+    def test_namespace_history(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        """Namespace history returns snapshots for a valid recommendation id."""
+        list_resp = _fetch_namespaces(
+            http_session, ros_api_url, namespace_auth, {"limit": 1}
+        )
+        assert list_resp.status_code == 200, list_resp.text
+        items = list_resp.json().get("data") or []
+        assert items, "No namespace recommendation data in cluster"
+
+        rec_id = items[0].get("id")
+        assert rec_id
+
+        history_resp = http_session.get(
+            _namespace_history_url(ros_api_url, rec_id),
+            headers=namespace_auth,
+            params={"limit": 30},
+            timeout=60,
+        )
+        assert history_resp.status_code == 200, history_resp.text
+        body = history_resp.json()
+        rows = body.get("data") or []
+        assert rows, "Namespace history must return at least one snapshot row"
+        assert body.get("meta", {}).get("count", 0) >= len(rows)
+        for row in rows:
+            assert row.get("term"), "history row must include term"
+            assert row.get("recommendation_type") in ("cost", "performance")
+            assert row.get("resource") in ("cpu", "memory")
+
+        cost_resp = http_session.get(
+            _namespace_history_url(ros_api_url, rec_id),
+            headers=namespace_auth,
+            params={"filter[engine]": "cost", "limit": 30},
+            timeout=60,
+        )
+        assert cost_resp.status_code == 200, cost_resp.text
+        cost_rows = cost_resp.json().get("data") or []
+        assert cost_rows, "Expected cost engine history rows"
+        _history_rows_match_engine(cost_rows, "cost")
+
+        term_resp = http_session.get(
+            _namespace_history_url(ros_api_url, rec_id),
+            headers=namespace_auth,
+            params={"filter[term]": "short_term", "limit": 30},
+            timeout=60,
+        )
+        assert term_resp.status_code == 200, term_resp.text
+        term_rows = term_resp.json().get("data") or []
+        assert term_rows, "Expected short_term history rows"
+        _history_rows_match_term(term_rows, "short_term")
+
+    def test_namespace_list_csv_export(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        """format=csv returns text/csv with header and data rows."""
+        resp = _fetch_namespaces(
+            http_session,
+            ros_api_url,
+            namespace_auth,
+            {"format": "csv", "limit": 10},
+        )
+        assert resp.status_code == 200, resp.text
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/csv" in content_type, f"Expected text/csv, got {content_type!r}"
+
+        lines = [ln for ln in resp.text.strip().splitlines() if ln.strip()]
+        assert len(lines) >= 2, "CSV export must include a header row and at least one data row"
+        header = lines[0].lower()
+        assert "cluster_uuid" in header
+        assert "project" in header
+        assert "recommendation_term" in header
+
+    def test_namespace_order_by_last_reported(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        """order_by=last_reported with order_how sorts by cluster last_reported."""
+        for order_how, descending in (("asc", False), ("desc", True)):
+            resp = _fetch_namespaces(
+                http_session,
+                ros_api_url,
+                namespace_auth,
+                {"order_by": "last_reported", "order_how": order_how, "limit": 20},
+            )
+            assert resp.status_code == 200, resp.text
+            items = resp.json().get("data") or []
+            assert len(items) >= 2, "Need multiple namespaces to verify sort order"
+            _assert_sorted(
+                items,
+                lambda item: _parse_last_reported(item.get("last_reported") or ""),
+                descending=descending,
+            )
+
+    def test_namespace_order_by_project(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        """order_by=project with order_how sorts namespace names."""
+        for order_how, descending in (("asc", False), ("desc", True)):
+            resp = _fetch_namespaces(
+                http_session,
+                ros_api_url,
+                namespace_auth,
+                {"order_by": "project", "order_how": order_how, "limit": 20},
+            )
+            assert resp.status_code == 200, resp.text
+            items = resp.json().get("data") or []
+            assert len(items) >= 2, "Need multiple namespaces to verify sort order"
+            _assert_sorted(
+                items,
+                lambda item: _namespace_project_name(item).lower(),
+                descending=descending,
+            )
+
+    def test_namespace_filter_by_project(
+        self,
+        ros_api_url: str,
+        namespace_auth: dict,
+        http_session: requests.Session,
+    ):
+        """filter[project] returns only rows for the selected namespace."""
+        baseline = _fetch_namespaces(
+            http_session, ros_api_url, namespace_auth, {"limit": 5}
+        )
+        assert baseline.status_code == 200, baseline.text
+        items = baseline.json().get("data") or []
+        assert items, "No namespace recommendation data in cluster"
+
+        project = _namespace_project_name(items[0])
+        assert project, "namespace list item must include project/namespace"
+
+        filtered = _fetch_namespaces(
+            http_session,
+            ros_api_url,
+            namespace_auth,
+            {"filter[project]": project, "limit": 20},
+        )
+        assert filtered.status_code == 200, filtered.text
+        body = filtered.json()
+        _assert_paginated_envelope(body)
+        filtered_items = body.get("data") or []
+        assert filtered_items, f"No namespaces returned for filter[project]={project!r}"
+        for item in filtered_items:
+            assert _namespace_project_name(item) == project, (
+                f"filter[project]={project!r} must match every row; got {_namespace_project_name(item)!r}"
+            )

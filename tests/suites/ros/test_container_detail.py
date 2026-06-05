@@ -401,14 +401,9 @@ class TestContainerDetailE2E:
             params={filter_param: filter_value, "limit": 50},
             timeout=60,
         )
-        if resp.status_code == 400:
-            body = resp.json()
-            if "invalid character" in body.get("message", ""):
-                pytest.xfail(
-                    "API rejects valid workload names containing special characters — "
-                    "filter validation too strict"
-                )
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 200, (
+            f"{filter_param}={filter_value!r} returned {resp.status_code}: {resp.text}"
+        )
         body = resp.json()
         _assert_paginated_envelope(body)
         items = body.get("data") or []
@@ -422,20 +417,13 @@ class TestContainerDetailE2E:
             if actual is None:
                 pytest.fail(f"Filtered row missing {item_field!r}: {item}")
             if case_insensitive:
-                match = str(actual).lower() == str(filter_value).lower()
-            else:
-                match = actual == filter_value
-            if not match:
-                # API may do prefix/substring matching for certain fields
-                # (e.g. filter[workload_type]=deployment also matches deploymentconfig)
-                if str(filter_value).lower() in str(actual).lower():
-                    pytest.xfail(
-                        "API filter[workload_type] does prefix/substring matching "
-                        "instead of exact match"
-                    )
-                pytest.fail(
-                    f"Filter mismatch: expected {item_field}={filter_value!r}, "
+                assert str(actual).lower() == str(filter_value).lower(), (
+                    f"Filter mismatch: expected {item_field}={filter_value!r} (case-insensitive), "
                     f"got {actual!r}"
+                )
+            else:
+                assert actual == filter_value, (
+                    f"Filter mismatch: expected {item_field}={filter_value!r}, got {actual!r}"
                 )
 
     def test_container_list_filter_cluster_results_match(
@@ -950,11 +938,10 @@ class TestContainerDetailE2E:
             f"RBAC should deny access to inaccessible cluster {denied_cluster!r}"
         )
         meta_count = body.get("meta", {}).get("count", 0)
-        if meta_count != 0:
-            pytest.xfail(
-                f"Known API issue: meta.count={meta_count} does not reflect RBAC filtering "
-                f"(data is correctly empty)"
-            )
+        assert meta_count == 0, (
+            f"meta.count={meta_count} should be 0 when data is empty "
+            f"(RBAC filtering must apply to count query too)"
+        )
 
     def test_container_order_by(
         self,

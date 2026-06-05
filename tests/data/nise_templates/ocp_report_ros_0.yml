@@ -9,6 +9,7 @@ generators:
           resource_id: 29999910
           namespaces:
             project-ros-A1:
+              namespace_labels: label_environment:production|label_team:platform
               pods:
                 - pod:
                   pod_name: pod-ros-A11
@@ -35,6 +36,7 @@ generators:
                     full_period: 1
                   labels: label_ros:ros_A12
             project-ros-A2:
+              namespace_labels: label_environment:staging|label_team:platform
               pods:
                 - pod:
                   pod_name: pod-ros-A21
@@ -49,6 +51,7 @@ generators:
                     full_period: 2
                   labels: label_ros:ros_A21
             project-ros-idle:
+              namespace_labels: label_environment:development|label_team:idle
               pods:
                 - pod:
                   pod_name: pod-ros-idle1
@@ -63,6 +66,7 @@ generators:
                     full_period: 0.05
                   labels: label_ros:ros_idle1
             project-ros-oom:
+              namespace_labels: label_environment:production|label_team:oom
               pods:
                 - pod:
                   pod_name: pod-ros-oom1
@@ -84,6 +88,7 @@ generators:
           resource_id: 29999911
           namespaces:
             project-ros-B1:
+              namespace_labels: label_environment:production|label_team:batch
               pods:
                 - pod:
                   pod_name: pod-ros-B11
@@ -98,6 +103,7 @@ generators:
                     full_period: 1
                   labels: label_ros:ros_B11
             project-ros-B2:
+              namespace_labels: label_environment:qa|label_team:batch
               pods:
                 - pod:
                   pod_name: pod-ros-B21
