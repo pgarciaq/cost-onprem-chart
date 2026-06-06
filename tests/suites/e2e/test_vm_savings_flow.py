@@ -138,7 +138,7 @@ class TestVMSavingsFlowE2E:
         body = resp.json()
         by_plugin = body.get("by_plugin", {})
         assert "vm" in by_plugin
-        assert isinstance(by_plugin["vm"], (int, float))
+        assert_structured_savings(by_plugin["vm"])
         total = parse_savings_value(body["estimated_monthly_savings"])
         assert total is not None
         plugin_total = _plugin_sum(by_plugin)

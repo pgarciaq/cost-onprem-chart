@@ -16,6 +16,7 @@ import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token
+from utils import assert_structured_savings
 
 VALID_VM_CONFIDENCE = frozenset({"high", "moderate", "low"})
 
@@ -721,7 +722,7 @@ class TestVMRecommendationsExtended:
         assert resp.status_code == 200, resp.text
         by_plugin = resp.json().get("by_plugin") or {}
         assert "vm" in by_plugin
-        assert isinstance(by_plugin["vm"], (int, float))
+        assert_structured_savings(by_plugin["vm"])
 
 
 _UPLOAD_ORG_ID = "1234567"

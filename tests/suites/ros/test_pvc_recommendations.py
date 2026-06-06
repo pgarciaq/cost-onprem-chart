@@ -734,7 +734,7 @@ class TestPVCRecommendationsE2E:
         assert resp.status_code == 200, resp.text
         by_plugin = resp.json().get("by_plugin") or {}
         assert "pvc" in by_plugin, f"by_plugin missing pvc key: {by_plugin}"
-        assert isinstance(by_plugin["pvc"], (int, float))
+        assert_structured_savings(by_plugin["pvc"])
 
 
 # Deterministic PVC names from tests/data/nise_templates/ocp_report_pvc_rightsizing.yml
