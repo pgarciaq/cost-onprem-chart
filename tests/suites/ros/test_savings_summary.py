@@ -70,7 +70,13 @@ def _plugin_sum(by_plugin: dict[str, Any]) -> float:
     total = 0.0
     for key in ("container", "node", "pvc", "snapshot", "vm"):
         value = by_plugin.get(key)
-        if value is not None:
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            parsed = parse_savings_value(value)
+            if parsed is not None:
+                total += parsed
+        else:
             total += float(value)
     return total
 
@@ -144,10 +150,11 @@ class TestSavingsSummaryE2E:
             assert key in by_plugin, f"by_plugin missing required key {key!r}"
         # snapshot/gpu may be zero depending on cluster data
         for optional in ("snapshot", "gpu"):
-            if optional in by_plugin:
-                assert by_plugin[optional] is None or isinstance(
-                    by_plugin[optional], (int, float)
-                )
+            if optional in by_plugin and by_plugin[optional] is not None:
+                assert_structured_savings(by_plugin[optional])
+        for key in ("container", "node", "pvc", "vm"):
+            if key in by_plugin and by_plugin[key] is not None:
+                assert_structured_savings(by_plugin[key])
 
     @pytest.mark.timeout(60)
     def test_savings_summary_total_matches_plugin_sum(
