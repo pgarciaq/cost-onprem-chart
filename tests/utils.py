@@ -676,6 +676,7 @@ def create_upload_package_from_files(
     node_label_files: Optional[list[str]] = None,
     namespace_label_files: Optional[list[str]] = None,
     gpu_usage_files: Optional[list[str]] = None,
+    storage_usage_files: Optional[list[str]] = None,
     extra_resource_optimization_files: Optional[list[str]] = None,
 ) -> str:
     """Create a tar.gz upload package from NISE-generated files.
@@ -692,6 +693,7 @@ def create_upload_package_from_files(
         node_label_files: Optional list of paths to node label CSV files
         namespace_label_files: Optional list of paths to namespace label CSV files
         gpu_usage_files: Optional list of paths to ocp_gpu_usage CSV files (Koku cost management)
+        storage_usage_files: Optional list of paths to ocp_storage_usage CSV files (Koku + PVC plugin)
         extra_resource_optimization_files: Optional extra ROS files (e.g. cluster_instance_types.json)
     
     Returns:
@@ -722,14 +724,22 @@ def create_upload_package_from_files(
     extra_ros = extra_resource_optimization_files or []
     ros_filenames = [os.path.basename(f) for f in ros_usage_files]
     ros_filenames.extend(os.path.basename(f) for f in extra_ros)
+    # PVC/snapshot plugins read storage from ROS path; NISE uses ocp_storage_usage (underscore),
+    # which does not match Koku ROS_EXTRA_PATTERNS ("storage-usage" with hyphen).
+    ros_filenames.extend(os.path.basename(f) for f in (storage_usage_files or []))
     node_label_filenames = [os.path.basename(f) for f in (node_label_files or [])]
     namespace_label_filenames = [os.path.basename(f) for f in (namespace_label_files or [])]
     gpu_usage_filenames = [os.path.basename(f) for f in (gpu_usage_files or [])]
+    storage_usage_filenames = [os.path.basename(f) for f in (storage_usage_files or [])]
 
     # Combine all files for the manifest's "files" array
-    # Koku processes all files listed here, including label and GPU usage files
+    # Koku processes all files listed here, including label, GPU, and storage usage files
     all_data_files = (
-        pod_filenames + gpu_usage_filenames + node_label_filenames + namespace_label_filenames
+        pod_filenames
+        + gpu_usage_filenames
+        + storage_usage_filenames
+        + node_label_filenames
+        + namespace_label_filenames
     )
 
     # Write manifest with separate file lists
@@ -755,6 +765,9 @@ def create_upload_package_from_files(
             tar.add(filepath, arcname=os.path.basename(filepath))
         if gpu_usage_files:
             for filepath in gpu_usage_files:
+                tar.add(filepath, arcname=os.path.basename(filepath))
+        if storage_usage_files:
+            for filepath in storage_usage_files:
                 tar.add(filepath, arcname=os.path.basename(filepath))
         # Add ROS usage files
         for filepath in ros_usage_files:

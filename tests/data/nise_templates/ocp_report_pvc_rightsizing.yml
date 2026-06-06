@@ -5,13 +5,14 @@
 #
 # Scenarios (namespace pvc-rightsizing):
 #   pvc-oversized   — 100Gi capacity, ~5Gi usage (~5% utilization)
-#   pvc-near-full   — 10Gi capacity, ~9.5Gi usage (~95% utilization)
+#   pvc-near-full   — 10Gi capacity, usage grows ~7Gi → ~9.5Gi over the report window
 #   pvc-orphaned    — 20Gi capacity, zero usage (unmounted workload pattern)
 #   pvc-healthy     — 50Gi capacity, ~30Gi usage (~60% utilization)
 #   pvc-vm-disk     — VM-owned PVC (virt-launcher pod + vm_name for ROS correlation)
 generators:
   - OCPGenerator:
       start_date: last_month
+      end_date: today
       nodes:
         - node:
           node_name: pvc-rs-node
@@ -60,7 +61,7 @@ generators:
                       labels: label_scenario:near_full
                       capacity_gig: 10
                       volume_claim_usage_gig:
-                        full_period: 9.5
+                        __PVC_NEAR_FULL_GROWTH__
                 - volume:
                   volume_name: vol-orphaned
                   storage_class: ocs-storagecluster-ceph-rbd
