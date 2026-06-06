@@ -17,6 +17,7 @@ Key components:
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -323,6 +324,58 @@ def _cluster_quota_enrichment_from_yaml(yaml_path: str) -> Dict[str, Dict[str, s
     return quotas
 
 
+def _pvc_growth_usage_yaml_block(
+    start_date: datetime,
+    end_date: datetime,
+    start_gib: float = 7.0,
+    end_gib: float = 9.5,
+    indent: str = "                        ",
+) -> str:
+    """YAML lines for monotonically increasing daily PVC usage (GiB)."""
+    day_count = max(2, (end_date.date() - start_date.date()).days + 1)
+    lines: List[str] = []
+    for day_index in range(day_count):
+        current_date = start_date.date() + timedelta(days=day_index)
+        if day_count == 1:
+            usage_gib = end_gib
+        else:
+            usage_gib = start_gib + (end_gib - start_gib) * day_index / (day_count - 1)
+        # Quote keys so YAML does not coerce them to datetime.date objects (NISE expects strings).
+        lines.append(f'{indent}"{current_date}": {usage_gib:.2f}')
+    return "\n".join(lines)
+
+
+def _apply_nise_template_date_overrides(
+    yaml_content: str,
+    start_date: datetime,
+    end_date: datetime,
+) -> str:
+    """Replace relative NISE template dates and PVC growth placeholders."""
+    yaml_content = yaml_content.replace(
+        "start_date: last_month",
+        f"start_date: {start_date.strftime('%Y-%m-%d')}",
+    )
+    yaml_content = yaml_content.replace(
+        "start_date: today",
+        f"start_date: {start_date.strftime('%Y-%m-%d')}",
+    )
+    yaml_content = yaml_content.replace(
+        "end_date: today",
+        f"end_date: {end_date.strftime('%Y-%m-%d')}",
+    )
+    def _replace_growth_placeholder(match: re.Match[str]) -> str:
+        indent = match.group(1)
+        return _pvc_growth_usage_yaml_block(start_date, end_date, indent=indent)
+
+    yaml_content = re.sub(
+        r"^(\s+)__PVC_NEAR_FULL_GROWTH__$",
+        _replace_growth_placeholder,
+        yaml_content,
+        flags=re.MULTILINE,
+    )
+    return yaml_content
+
+
 def enrich_cluster_quota_csv_files(
     csv_paths: List[str],
     quotas_by_name: Dict[str, Dict[str, str]],
@@ -394,9 +447,7 @@ def generate_nise_data(
         with open(template_path, "r") as f:
             yaml_content = f.read()
         
-        # Replace date placeholders if present
-        yaml_content = yaml_content.replace("start_date: last_month", f"start_date: {start_date.strftime('%Y-%m-%d')}")
-        yaml_content = yaml_content.replace("start_date: today", f"start_date: {start_date.strftime('%Y-%m-%d')}")
+        yaml_content = _apply_nise_template_date_overrides(yaml_content, start_date, end_date)
         
         yaml_path = os.path.join(output_dir, "static_report.yml")
         with open(yaml_path, "w") as f:
@@ -449,6 +500,7 @@ def generate_nise_data(
         "node_label_files": [],
         "namespace_label_files": [],
         "snapshot_inventory_files": [],
+        "storage_usage_files": [],
         "all_files": [],
     }
     
@@ -478,6 +530,8 @@ def generate_nise_data(
                     files["namespace_label_files"].append(full_path)
                 elif "snapshot_inventory" in f:
                     files["snapshot_inventory_files"].append(full_path)
+                elif "storage_usage" in f:
+                    files["storage_usage_files"].append(full_path)
     
     # Fall back: if no ros_usage files, use pod_usage
     if not files["ros_usage_files"]:
