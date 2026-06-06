@@ -31,6 +31,8 @@
 # Filter Options:
 #   --smoke             Run only smoke tests (quick validation)
 #   --slow              Include slow tests (processing, recommendations)
+#   --extended          Include extended tests (NISE ingestion, summary tables)
+#   --all               Run all tests including extended (alias for --extended here)
 #
 # Setup Options:
 #   --setup-only        Only setup the environment, don't run tests
@@ -52,6 +54,8 @@
 #   ./run-pytest.sh --auth --ros            # Run auth and ROS suites
 #   ./run-pytest.sh --e2e --smoke           # Run E2E smoke tests
 #   ./run-pytest.sh --e2e                   # Run full E2E flow
+#   ./run-pytest.sh --extended              # Include extended tests (NISE, Kruize)
+#   ./run-pytest.sh --all                   # Same as --extended for marker filtering
 #   ./run-pytest.sh --ui                    # Run UI tests only
 #   ./run-pytest.sh --performance           # Run all performance tests
 #   ./run-pytest.sh --perf-api              # Run API latency tests only
@@ -126,6 +130,11 @@ show_help() {
     echo "Markers:"
     echo "  smoke             Quick validation tests (~1 min)"
     echo "  slow              Long-running tests (processing, recommendations)"
+    echo "  extended          NISE ingestion / summary-table tests (excluded from default CI)"
+    echo ""
+    echo "Filter Options:"
+    echo "  --extended        Include extended tests in the run"
+    echo "  --all             Include extended tests (same marker effect as --extended)"
     echo ""
     echo "Performance Test Options:"
     echo "  --performance     Run all performance tests"
@@ -308,12 +317,23 @@ run_pytest() {
     return $exit_code
 }
 
+# Default CI excludes performance and extended unless --extended/--all is set.
+default_marker_exclusions() {
+    local exclusions="not performance"
+    if [[ "$include_extended" != "true" && "$run_all" != "true" ]]; then
+        exclusions="${exclusions} and not extended"
+    fi
+    echo "$exclusions"
+}
+
 main() {
     local pytest_markers=()
     local pytest_extra_args=()
     local include_ui=true   # UI tests included by default
     local exclude_ui=false  # Flag to explicitly exclude UI
     local ui_only=false     # Flag for running only UI tests
+    local include_extended=false
+    local run_all=false
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -403,6 +423,15 @@ main() {
                 pytest_markers+=("slow")
                 shift
                 ;;
+            --extended)
+                include_extended=true
+                shift
+                ;;
+            --all)
+                run_all=true
+                include_extended=true
+                shift
+                ;;
             # Setup options
             --setup-only)
                 SETUP_ONLY=true
@@ -462,29 +491,25 @@ main() {
     local pytest_args=()
 
     # Handle marker filtering
-    # Performance tests are ALWAYS excluded unless explicitly requested via --performance flags
-    # This prevents long-running perf tests from running during normal chart test CI
+    # Performance tests are ALWAYS excluded unless explicitly requested via --performance flags.
+    # Extended tests are excluded from default CI unless --extended/--all is passed.
+    local default_exclusions
+    default_exclusions=$(default_marker_exclusions)
+
     if [[ "$ui_only" == "true" ]]; then
-        # Run only UI tests
-        pytest_args+=("-m" "ui")
+        pytest_args+=("-m" "ui and ${default_exclusions}")
     elif [[ ${#pytest_markers[@]} -gt 0 ]]; then
         local marker_expr
         marker_expr=$(IFS=" or "; echo "${pytest_markers[*]}")
-        # Check if this is a performance test request
         if [[ "$marker_expr" == *"performance"* ]]; then
-            # Performance tests - use marker as-is
             pytest_args+=("-m" "$marker_expr")
         else
-            # Non-performance tests - exclude performance marker
-            pytest_args+=("-m" "($marker_expr) and not performance")
+            pytest_args+=("-m" "($marker_expr) and ${default_exclusions}")
         fi
     elif [[ "$exclude_ui" == "true" ]]; then
-        # Exclude UI tests and performance tests when --no-ui is specified
-        pytest_args+=("-m" "not ui and not performance")
+        pytest_args+=("-m" "not ui and ${default_exclusions}")
     else
-        # Default: run all tests EXCEPT performance tests
-        # Performance tests must be explicitly requested via --performance flags
-        pytest_args+=("-m" "not performance")
+        pytest_args+=("-m" "${default_exclusions}")
     fi
 
     # Add any extra arguments

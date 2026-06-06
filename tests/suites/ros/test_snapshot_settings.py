@@ -1,7 +1,17 @@
-"""E2E tests for ROS snapshot staleness settings API.
+"""E2E tests for ROS snapshot staleness settings API (default CI suite).
+
+These run on every PR (no ``extended`` marker). Settings CRUD does not require
+NISE ingestion or seeded snapshot recommendations. Skips gracefully when the
+snapshot plugin is disabled (404).
+
+Data-dependent snapshot list/classification coverage lives in
+``test_snapshot_classification.py`` (``extended``).
 
 Endpoints:
   GET/PUT/DELETE /api/cost-management/v1/recommendations/openshift/settings/snapshot
+
+Run:
+  NAMESPACE=cost-onprem ./scripts/run-pytest.sh --ros -k snapshot_settings
 """
 
 from __future__ import annotations
