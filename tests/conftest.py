@@ -28,6 +28,7 @@ from utils import (
     get_pod_by_label,
     get_route_url,
     get_secret_value,
+    normalize_org_id,
     run_oc_command,
 )
 from rbac_bootstrap_scripts import (
@@ -49,7 +50,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Fallback identity values when Keycloak is unreachable.
 # Canonical source: jwtAuth.realmUsers in cost-onprem/values.yaml.
-_DEFAULT_ORG_ID = "org1234567"
+# Must be the bare org number — Koku prepends "org" to form the tenant schema.
+_DEFAULT_ORG_ID = "1234567"
 _DEFAULT_ACCOUNT_NUMBER = "7890123"
 
 
@@ -119,7 +121,7 @@ class DatabaseConfig:
     pod_name: str
     namespace: str
     database: str = "costonprem_koku"  # Chart default from values.yaml
-    user: str = "koku_user"  # Chart default from values.yaml
+    user: str = "koku"  # Chart secret key koku-user (see values.yaml)
     password: Optional[str] = None
 
 
@@ -581,7 +583,7 @@ def database_config(cluster_config: ClusterConfig) -> DatabaseConfig:
     db_password = get_secret_value(cluster_config.namespace, secret_name, "koku-password")
 
     if not db_user:
-        db_user = "koku_user"  # Chart default from values.yaml
+        db_user = "koku"  # Chart secret key koku-user (see values.yaml)
 
     # Detect actual database name from Koku deployment (unified koku-api)
     db_name_result = run_oc_command([
@@ -834,7 +836,7 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
         ], check=False)
         
         if not admin_pass_result.stdout.strip():
-            return _DEFAULT_ORG_ID
+            return normalize_org_id(_DEFAULT_ORG_ID)
         
         admin_password = base64.b64decode(admin_pass_result.stdout.strip()).decode("utf-8")
         
@@ -852,7 +854,7 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
         )
         
         if token_response.status_code != 200:
-            return _DEFAULT_ORG_ID
+            return normalize_org_id(_DEFAULT_ORG_ID)
         
         admin_token = token_response.json().get("access_token")
         
@@ -873,11 +875,11 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
             if users:
                 org_id_value = users[0].get("attributes", {}).get("org_id", [None])[0]
                 if org_id_value:
-                    return org_id_value
+                    return normalize_org_id(org_id_value)
         
-        return _DEFAULT_ORG_ID
+        return normalize_org_id(_DEFAULT_ORG_ID)
     except Exception:
-        return _DEFAULT_ORG_ID
+        return normalize_org_id(_DEFAULT_ORG_ID)
 
 
 # =============================================================================
@@ -948,7 +950,7 @@ def _rbac_bootstrap(cluster_config: ClusterConfig, keycloak_config: KeycloakConf
         return
 
     # Resolve org_id from the token claims or fall back to default
-    org_id_value = claims.get("org_id") or _DEFAULT_ORG_ID
+    org_id_value = normalize_org_id(claims.get("org_id") or _DEFAULT_ORG_ID)
     acct_number = claims.get("account_number") or _DEFAULT_ACCOUNT_NUMBER
 
     bootstrap_script = render_bootstrap_script(sa_usernames, org_id_value, acct_number)

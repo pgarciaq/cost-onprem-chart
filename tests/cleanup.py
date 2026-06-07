@@ -115,7 +115,7 @@ def cleanup_database_records(
     org_id: str,
     cluster_id: Optional[str] = None,
     database: str = "koku",
-    db_user: str = "koku_user",
+    db_user: str = "koku",
 ) -> dict:
     """Clean up database processing records from previous test runs.
     
@@ -331,7 +331,7 @@ def full_cleanup(
     restart_services: bool = False,
     verbose: bool = True,
     database: str = "koku",
-    db_user: str = "koku_user",
+    db_user: str = "koku",
 ) -> dict:
     """Perform full cleanup of test artifacts.
     

@@ -33,6 +33,7 @@ import yaml
 from utils import (
     create_upload_package_from_files,
     execute_db_query,
+    execute_db_query_with_config,
     exec_in_pod,
     get_pod_by_label,
     wait_for_condition,
@@ -930,6 +931,7 @@ def wait_for_provider(
     cluster_id: str,
     timeout: int = 300,
     interval: int = 10,
+    db_config=None,
 ) -> bool:
     """Wait for provider to be created in Koku database.
     
@@ -939,15 +941,18 @@ def wait_for_provider(
     Returns True if provider was created, False on timeout.
     """
     def check_provider():
-        result = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"""
+        query = f"""
             SELECT p.uuid FROM api_provider p
             JOIN api_providerauthentication pa ON p.authentication_id = pa.id
             WHERE pa.credentials->>'cluster_id' = '{cluster_id}'
                OR p.additional_context->>'cluster_id' = '{cluster_id}'
             """
-        )
+        if db_config is not None:
+            result = execute_db_query_with_config(db_config, query)
+        else:
+            result = execute_db_query(
+                namespace, db_pod, "costonprem_koku", "koku", query
+            )
         return result and result[0][0]
     
     return wait_for_condition(check_provider, timeout=timeout, interval=interval)
@@ -959,16 +964,21 @@ def wait_for_summary_tables(
     cluster_id: str,
     timeout: int = 600,
     interval: int = 30,
+    db_config=None,
 ) -> Optional[str]:
     """Wait for summary tables to be populated and return schema name.
     
     Returns schema name if successful, None on timeout.
     """
     found_schema = {"name": None}
+
+    def _query(query: str):
+        if db_config is not None:
+            return execute_db_query_with_config(db_config, query)
+        return execute_db_query(namespace, db_pod, "costonprem_koku", "koku", query)
     
     def check_summary():
-        result = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        result = _query(
             f"""
             SELECT c.schema_name FROM reporting_common_costusagereportmanifest m
             JOIN api_provider p ON m.provider_id = p.uuid
@@ -980,8 +990,7 @@ def wait_for_summary_tables(
             return False
         
         schema = result[0][0].strip()
-        result = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        result = _query(
             f"SELECT COUNT(*) FROM {schema}.reporting_ocpusagelineitem_daily_summary WHERE cluster_id = '{cluster_id}'"
         )
         
@@ -1002,22 +1011,23 @@ def wait_for_gpu_summary_tables(
     schema_name: str,
     timeout: int = 600,
     interval: int = 30,
+    db_config=None,
 ) -> bool:
     """Wait until reporting_ocp_gpu_summary_p has MIG rows for the cluster."""
 
     def check_gpu_summary():
-        result = execute_db_query(
-            namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
-            f"""
+        query = f"""
             SELECT COUNT(*) FROM {schema_name}.reporting_ocp_gpu_summary_p
             WHERE cluster_id = '{cluster_id}'
               AND mig_instance_id IS NOT NULL
               AND mig_instance_id != ''
-            """,
-        )
+            """
+        if db_config is not None:
+            result = execute_db_query_with_config(db_config, query)
+        else:
+            result = execute_db_query(
+                namespace, db_pod, "costonprem_koku", "koku", query
+            )
         return result is not None and int(result[0][0]) > 0
 
     return wait_for_condition(
@@ -1036,26 +1046,26 @@ def cleanup_database_records(
     namespace: str,
     db_pod: str,
     cluster_id: str,
+    db_config=None,
 ) -> bool:
     """Clean up database records for a cluster."""
     try:
-        # Delete file statuses first (foreign key constraint)
-        execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"""
+        status_query = f"""
             DELETE FROM reporting_common_costusagereportstatus
             WHERE manifest_id IN (
                 SELECT id FROM reporting_common_costusagereportmanifest
                 WHERE cluster_id = '{cluster_id}'
             )
             """
-        )
-        
-        # Delete manifests
-        execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        manifest_query = (
             f"DELETE FROM reporting_common_costusagereportmanifest WHERE cluster_id = '{cluster_id}'"
         )
+        if db_config is not None:
+            execute_db_query_with_config(db_config, status_query)
+            execute_db_query_with_config(db_config, manifest_query)
+        else:
+            execute_db_query(namespace, db_pod, "costonprem_koku", "koku", status_query)
+            execute_db_query(namespace, db_pod, "costonprem_koku", "koku", manifest_query)
         
         return True
     except Exception:
