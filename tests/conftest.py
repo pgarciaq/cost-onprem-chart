@@ -87,7 +87,7 @@ class KeycloakConfig:
     url: str
     client_id: str
     client_secret: str
-    realm: str = "kubernetes"
+    realm: str = os.environ.get("KEYCLOAK_REALM", "cost-management")
 
     @property
     def token_url(self) -> str:
@@ -863,7 +863,7 @@ def org_id(cluster_config: ClusterConfig, keycloak_config: KeycloakConfig) -> st
         # require different users with specific role assignments in the future.
         admin_username = os.environ.get("TEST_USERNAME", "admin")
         users_response = requests.get(
-            f"{keycloak_config.url}/admin/realms/kubernetes/users",
+            f"{keycloak_config.url}/admin/realms/{keycloak_config.realm}/users",
             params={"username": admin_username, "exact": "true"},
             headers={"Authorization": f"Bearer {admin_token}"},
             verify=False,
