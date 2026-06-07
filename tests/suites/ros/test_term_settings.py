@@ -24,6 +24,12 @@ _DEFAULT_TERMS_BY_NAME = {
     "long": {"window_days": 15, "min_data_days": 7},
 }
 
+_PVC_DEFAULT_TERMS_BY_NAME = {
+    "short": {"window_days": 7, "min_data_days": 3},
+    "medium": {"window_days": 30, "min_data_days": 14},
+    "long": {"window_days": 90, "min_data_days": 30},
+}
+
 _CUSTOM_TERMS_PAYLOAD = {
     "terms": [
         {"name": "short", "window_days": 3, "min_data_days": 2},
@@ -89,13 +95,20 @@ def _terms_by_name(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {item["name"]: item for item in terms_list if item.get("name")}
 
 
+def _default_terms_for_type(recommendation_type: str) -> dict[str, dict[str, int]]:
+    if recommendation_type == "pvc":
+        return _PVC_DEFAULT_TERMS_BY_NAME
+    return _DEFAULT_TERMS_BY_NAME
+
+
 def _assert_default_terms(body: dict[str, Any], recommendation_type: str) -> None:
     assert body.get("recommendation_type") == recommendation_type
     by_name = _terms_by_name(body)
+    defaults = _default_terms_for_type(recommendation_type)
     for name in _TERM_NAMES:
         assert name in by_name, f"missing term {name!r}"
         term = by_name[name]
-        expected = _DEFAULT_TERMS_BY_NAME[name]
+        expected = defaults[name]
         assert term["window_days"] == expected["window_days"]
         assert term["min_data_days"] == expected["min_data_days"]
         assert "decay_halflife_hours" in term
