@@ -239,9 +239,14 @@ class TestIdleDetectionFlowE2E:
         if not items:
             pytest.skip("No idle namespaces on cluster")
         for item in items:
-            assert "idle_state" in item or "namespace" in item, (
-                f"Namespace row missing expected fields: {list(item.keys())}"
+            assert "project" in item, (
+                f"Namespace row missing project field: {list(item.keys())}"
             )
+            idle_state = item.get("idle_state")
+            if idle_state is not None:
+                assert idle_state == "idle", (
+                    f"Expected idle_state=idle, got {idle_state!r}"
+                )
 
     def test_gpu_idle_state_filter(
         self,

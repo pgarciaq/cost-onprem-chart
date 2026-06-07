@@ -77,6 +77,11 @@ def _idle_block(body: dict[str, Any]) -> dict[str, Any]:
     return idle
 
 
+def _locked_fields(body: dict[str, Any]) -> set[str]:
+    locked = body.get("locked_fields") or []
+    return {str(field) for field in locked}
+
+
 @pytest.fixture
 def idle_detection_settings_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -118,13 +123,41 @@ class TestIdleDetectionSettingsE2E:
         keycloak_config,
         cluster_config,
     ):
-        custom = {
-            "idle_detection": {
-                "enabled": False,
-                "thresholds": {"cpu_utilization_percent": 3},
+        get_resp = _get_settings(
+            http_session, ros_api_url, idle_detection_settings_auth
+        )
+        assert get_resp.status_code == 200, get_resp.text
+        locked = _locked_fields(get_resp.json())
+
+        if "enabled" in locked:
+            put_resp = _put_settings(
+                http_session,
+                ros_api_url,
+                idle_detection_settings_auth,
+                {"idle_detection": {"enabled": False}},
+            )
+            assert put_resp.status_code == 403, put_resp.text
+            body = put_resp.json()
+            assert body.get("status") == "error"
+            assert "enabled" in _locked_fields(body)
+
+            put_resp = _put_settings(
+                http_session,
+                ros_api_url,
+                idle_detection_settings_auth,
+                {"idle_detection": {"thresholds": {"cpu_utilization_percent": 3}}},
+            )
+            assert put_resp.status_code == 200, put_resp.text
+            put_idle = _idle_block(put_resp.json())
+            assert put_idle["enabled"] is True
+            assert put_idle["thresholds"]["cpu_utilization_percent"] == 3
+        else:
+            custom = {
+                "idle_detection": {
+                    "enabled": False,
+                    "thresholds": {"cpu_utilization_percent": 3},
+                }
             }
-        }
-        try:
             put_resp = _put_settings(
                 http_session,
                 ros_api_url,
@@ -136,13 +169,15 @@ class TestIdleDetectionSettingsE2E:
             assert put_idle["enabled"] is False
             assert put_idle["thresholds"]["cpu_utilization_percent"] == 3
 
+        try:
             get_resp = _get_settings(
                 http_session, ros_api_url, idle_detection_settings_auth
             )
             assert get_resp.status_code == 200, get_resp.text
             get_idle = _idle_block(get_resp.json())
-            assert get_idle["enabled"] is False
             assert get_idle["thresholds"]["cpu_utilization_percent"] == 3
+            if "enabled" not in locked:
+                assert get_idle["enabled"] is False
         finally:
             auth = get_fresh_token(keycloak_config, cluster_config, http_session)
             if auth:
@@ -153,14 +188,31 @@ class TestIdleDetectionSettingsE2E:
         ros_api_url: str,
         idle_detection_settings_auth: dict,
         http_session: requests.Session,
+        keycloak_config,
+        cluster_config,
     ):
-        put_resp = _put_settings(
-            http_session,
-            ros_api_url,
-            idle_detection_settings_auth,
-            {"idle_detection": {"enabled": False}},
+        get_resp = _get_settings(
+            http_session, ros_api_url, idle_detection_settings_auth
         )
-        assert put_resp.status_code == 200, put_resp.text
+        assert get_resp.status_code == 200, get_resp.text
+        locked = _locked_fields(get_resp.json())
+
+        if "enabled" in locked:
+            put_resp = _put_settings(
+                http_session,
+                ros_api_url,
+                idle_detection_settings_auth,
+                {"idle_detection": {"thresholds": {"cpu_utilization_percent": 4}}},
+            )
+            assert put_resp.status_code == 200, put_resp.text
+        else:
+            put_resp = _put_settings(
+                http_session,
+                ros_api_url,
+                idle_detection_settings_auth,
+                {"idle_detection": {"enabled": False}},
+            )
+            assert put_resp.status_code == 200, put_resp.text
 
         del_resp = _delete_settings(
             http_session, ros_api_url, idle_detection_settings_auth
@@ -179,6 +231,10 @@ class TestIdleDetectionSettingsE2E:
             get_idle["thresholds"]["cpu_utilization_percent"]
             == _DEFAULT_IDLE["thresholds"]["cpu_utilization_percent"]
         )
+
+        auth = get_fresh_token(keycloak_config, cluster_config, http_session)
+        if auth:
+            _delete_settings(http_session, ros_api_url, auth)
 
     def test_idle_detection_settings_put_validation_cpu_out_of_range(
         self,
