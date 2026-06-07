@@ -208,6 +208,15 @@ data:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
                   default_source_code:
                     inline_string: |
+                      -- Strip accidental "org" prefix from org_id (Koku prepends "org" itself)
+                      local function normalize_org_id(request_handle, org_id)
+                        if string.sub(org_id, 1, 3) == "org" and string.match(string.sub(org_id, 4), "^%d+$") then
+                          request_handle:logWarn("org_id already has 'org' prefix, stripping: " .. org_id)
+                          return string.sub(org_id, 4)
+                        end
+                        return org_id
+                      end
+
                       -- Helper function to validate org_id and account_number
                       local function validate_identifier(value, field_name, max_length)
                         max_length = max_length or 128  -- Default max length
@@ -329,7 +338,7 @@ data:
                             )
                             return
                           end
-                          org_id = tostring(org_id)
+                          org_id = normalize_org_id(request_handle, tostring(org_id))
 
                           -- Validate org_id
                           local valid, err_msg = validate_identifier(org_id, "org_id")

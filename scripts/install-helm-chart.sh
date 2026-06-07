@@ -601,7 +601,7 @@ create_database_credentials_secret() {
         --from-literal=ros-password="$ros_password" \
         --from-literal=kruize-user=kruize_user \
         --from-literal=kruize-password="$kruize_password" \
-        --from-literal=koku-user=koku_user \
+        --from-literal=koku-user=koku \
         --from-literal=koku-password="$koku_password" \
         --from-literal=rbac-user=rbac_user \
         --from-literal=rbac-password="$rbac_password" \

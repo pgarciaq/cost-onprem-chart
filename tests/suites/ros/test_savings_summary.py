@@ -9,7 +9,12 @@ import pytest
 import requests
 
 from suites.ros.test_recommendations import get_fresh_token, get_recommendations_endpoint
-from utils import assert_structured_savings, parse_savings_value, run_oc_command
+from utils import (
+    assert_structured_savings,
+    normalize_org_id as _bare_org_id,
+    parse_savings_value,
+    run_oc_command,
+)
 
 _FLOAT_TOLERANCE = 0.02
 
@@ -26,13 +31,6 @@ def _recalculate_savings_url(ros_api_url: str) -> str:
         f"{ros_api_url.rstrip('/')}/cost-management/v1/"
         "internal/recalculate-savings"
     )
-
-
-def _bare_org_id(org_id: str) -> str:
-    """API bodies use org_id without the org schema prefix."""
-    if org_id.startswith("org"):
-        return org_id[3:]
-    return org_id
 
 
 def _fleet_summary_url(ros_api_url: str) -> str:

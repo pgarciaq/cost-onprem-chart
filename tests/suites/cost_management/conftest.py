@@ -38,7 +38,7 @@ from e2e_helpers import (
 from utils import (
     create_rh_identity_header,
     create_upload_package_from_files,
-    execute_db_query,
+    execute_db_query_with_config,
     exec_in_pod,
     get_pod_by_label,
 )
@@ -46,7 +46,7 @@ from utils import (
 
 def cleanup_old_cost_val_clusters(
     namespace: str,
-    db_pod: str,
+    db_config,
     ingress_pod: str,
     api_url: str,
     rh_identity_header: str,
@@ -55,15 +55,10 @@ def cleanup_old_cost_val_clusters(
     
     This ensures cost_validation tests start with a clean slate and don't
     pick up data from previous runs.
-    
-    Note: Cluster IDs are generated as "e2e-pytest-cost-val-{unique}" by
-    generate_cluster_id("cost-val"), so we need to match that pattern.
-    Source names are "cost-validation-{last8chars}".
     """
     import json
     
     # Find and delete old cost-val sources
-    # Match both old pattern (cost-val-*) and new pattern (e2e-pytest-cost-val-*)
     try:
         result = exec_in_pod(
             namespace,
@@ -80,12 +75,9 @@ def cleanup_old_cost_val_clusters(
             sources = json.loads(result)
             for source in sources.get("data", []):
                 source_ref = source.get("source_ref", "")
-                source_name = source.get("name", "")
-                # Match cluster IDs: e2e-pytest-cost-val-* or legacy cost-val-*
-                # Also match source names: cost-validation-*
-                if source_ref and ("cost-val" in source_ref or source_name.startswith("cost-validation")):
+                if source_ref and source_ref.startswith("cost-val-"):
                     source_id = source.get("id")
-                    print(f"       Deleting old source: {source_name} (ref: {source_ref})")
+                    print(f"       Deleting old source: {source.get('name')} (ref: {source_ref})")
                     exec_in_pod(
                         namespace,
                         ingress_pod,
@@ -100,29 +92,28 @@ def cleanup_old_cost_val_clusters(
         print(f"       Warning: Could not clean old sources: {e}")
     
     # Clean up database records for cost-val clusters
-    # Match both patterns: e2e-pytest-cost-val-* (current) and cost-val-* (legacy)
     try:
         # Delete manifest statuses
-        execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        execute_db_query_with_config(
+            db_config,
             """
             DELETE FROM reporting_common_costusagereportstatus 
             WHERE manifest_id IN (
                 SELECT id FROM reporting_common_costusagereportmanifest 
-                WHERE cluster_id LIKE '%cost-val-%'
+                WHERE cluster_id LIKE 'cost-val-%'
             )
             """
         )
         
         # Delete manifests
-        execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            "DELETE FROM reporting_common_costusagereportmanifest WHERE cluster_id LIKE '%cost-val-%'"
+        execute_db_query_with_config(
+            db_config,
+            "DELETE FROM reporting_common_costusagereportmanifest WHERE cluster_id LIKE 'cost-val-%'"
         )
         
         # Get all schemas and clean summary tables + tenant provider mappings
-        schemas = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        schemas = execute_db_query_with_config(
+            db_config,
             "SELECT DISTINCT schema_name FROM api_customer WHERE schema_name IS NOT NULL"
         )
         
@@ -131,17 +122,17 @@ def cleanup_old_cost_val_clusters(
                 schema = row[0].strip() if row[0] else None
                 if schema:
                     try:
-                        execute_db_query(
-                            namespace, db_pod, "costonprem_koku", "koku_user",
-                            f"DELETE FROM {schema}.reporting_ocpusagelineitem_daily_summary WHERE cluster_id LIKE '%cost-val-%'"
+                        execute_db_query_with_config(
+                            db_config,
+                            f"DELETE FROM {schema}.reporting_ocpusagelineitem_daily_summary WHERE cluster_id LIKE 'cost-val-%'"
                         )
                     except Exception:
                         pass  # Table might not exist in all schemas
                     
                     # Delete tenant-provider mappings (FK constraint on api_provider)
                     try:
-                        execute_db_query(
-                            namespace, db_pod, "costonprem_koku", "koku_user",
+                        execute_db_query_with_config(
+                            db_config,
                             f"""
                             DELETE FROM {schema}.reporting_tenant_api_provider 
                             WHERE provider_id IN (
@@ -155,8 +146,8 @@ def cleanup_old_cost_val_clusters(
         
         # Delete providers (after FK references are removed)
         try:
-            execute_db_query(
-                namespace, db_pod, "costonprem_koku", "koku_user",
+            execute_db_query_with_config(
+                db_config,
                 "DELETE FROM public.api_provider WHERE name LIKE 'cost-validation%'"
             )
         except Exception:
@@ -177,7 +168,7 @@ def koku_api_url(cluster_config) -> str:
 # =============================================================================
 
 @pytest.fixture(scope="module")
-def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url, org_id):
+def cost_validation_data(cluster_config, database_config, s3_config, keycloak_config, ingress_url, org_id):
     """Run full E2E setup for cost validation tests - SELF-CONTAINED.
     
     This fixture:
@@ -215,10 +206,7 @@ def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url
     cluster_id = generate_cluster_id(prefix="cost-val")
     
     # Get required pods
-    db_pod = get_pod_by_label(cluster_config.namespace, "app.kubernetes.io/component=database")
-    if not db_pod:
-        pytest.skip("Database pod not found")
-    
+    db_pod = database_config.pod_name
     ingress_pod = get_pod_by_label(cluster_config.namespace, "app.kubernetes.io/component=ingress")
     if not ingress_pod:
         pytest.skip("Ingress pod not found")
@@ -247,7 +235,7 @@ def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url
         if cleanup_before:
             print("\n  [0/5] Pre-test cleanup...")
             cleanup_old_cost_val_clusters(
-                cluster_config.namespace, db_pod, ingress_pod,
+                cluster_config.namespace, database_config, ingress_pod,
                 api_url, rh_identity,
             )
             print("       Cleanup complete")
@@ -289,7 +277,9 @@ def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url
         
         # Step 3: Wait for provider
         print("\n  [3/5] Waiting for provider in Koku...")
-        if not wait_for_provider(cluster_config.namespace, db_pod, cluster_id):
+        if not wait_for_provider(
+            cluster_config.namespace, db_pod, cluster_id, db_config=database_config
+        ):
             pytest.fail(f"Provider not created for cluster {cluster_id}")
         print("       Provider created")
         
@@ -335,7 +325,9 @@ def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url
         
         # Step 5: Wait for processing
         print("\n  [5/5] Waiting for Koku processing...")
-        schema_name = wait_for_summary_tables(cluster_config.namespace, db_pod, cluster_id)
+        schema_name = wait_for_summary_tables(
+            cluster_config.namespace, db_pod, cluster_id, db_config=database_config
+        )
         
         if not schema_name:
             pytest.fail(f"Timeout waiting for summary tables for cluster {cluster_id}")
@@ -347,8 +339,8 @@ def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url
         
         # Query the actual number of days of data in the DB
         # Koku aggregates hourly data into daily summaries
-        result = execute_db_query(
-            cluster_config.namespace, db_pod, "costonprem_koku", "koku",
+        result = execute_db_query_with_config(
+            database_config,
             f"""
             SELECT COUNT(DISTINCT usage_start)
             FROM {schema_name}.reporting_ocpusagelineitem_daily_summary
@@ -362,6 +354,7 @@ def cost_validation_data(cluster_config, s3_config, keycloak_config, ingress_url
         yield {
             "namespace": cluster_config.namespace,
             "db_pod": db_pod,
+            "db_config": database_config,
             "cluster_id": cluster_id,
             "schema_name": schema_name,
             "source_id": source_registration.source_id,

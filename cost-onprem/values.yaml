@@ -1099,13 +1099,15 @@ jwtAuth:
   # Keycloak is the single source of truth — after initial provisioning, admin
   # status can also be managed directly in the Keycloak admin console by
   # assigning/removing the "org-admin" realm role.
+  # orgId MUST be the bare org number (e.g. "1234567"), never prefixed with "org".
+  # Koku prepends "org" to form the tenant schema; "org1234567" here creates orgorg1234567.
   realmUsers:
     - username: admin
       password: admin
       email: admin@test.com
       firstName: Admin
       lastName: User
-      orgId: "org1234567"
+      orgId: "1234567"
       accountNumber: "7890123"
       orgAdmin: true
     - username: viewer
@@ -1113,7 +1115,7 @@ jwtAuth:
       email: viewer@test.com
       firstName: Viewer
       lastName: User
-      orgId: "org1234567"
+      orgId: "1234567"
       accountNumber: "7890123"
       orgAdmin: false
 

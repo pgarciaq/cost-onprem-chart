@@ -19,7 +19,7 @@ import os
 
 import pytest
 
-from utils import execute_db_query
+from utils import execute_db_query_with_config
 
 
 # =============================================================================
@@ -51,11 +51,8 @@ class TestSummaryTableData:
         """Verify the OCP usage summary table exists."""
         ctx = cost_validation_data
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
@@ -73,11 +70,8 @@ class TestSummaryTableData:
         """Verify summary table has data for the test cluster."""
         ctx = cost_validation_data
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT COUNT(*)
             FROM {ctx["schema_name"]}.reporting_ocpusagelineitem_daily_summary
@@ -120,11 +114,8 @@ class TestMetricValidation:
         expected = ctx["expected"]
         tolerance = get_cost_tolerance()
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT SUM({db_column}) as total
             FROM {ctx["schema_name"]}.reporting_ocpusagelineitem_daily_summary
@@ -158,11 +149,8 @@ class TestMetricValidation:
         """
         ctx = cost_validation_data
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT SUM({db_column}) as total_usage
             FROM {ctx["schema_name"]}.reporting_ocpusagelineitem_daily_summary
@@ -197,11 +185,8 @@ class TestResourceCounts:
         ctx = cost_validation_data
         expected = ctx["expected"]
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT COUNT(DISTINCT {db_column}) as count
             FROM {ctx["schema_name"]}.reporting_ocpusagelineitem_daily_summary
@@ -240,11 +225,8 @@ class TestResourceNames:
         ctx = cost_validation_data
         expected = ctx["expected"]
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT DISTINCT {db_column}
             FROM {ctx["schema_name"]}.reporting_ocpusagelineitem_daily_summary
@@ -274,11 +256,8 @@ class TestInfrastructureCost:
         """Verify infrastructure cost was calculated (non-zero)."""
         ctx = cost_validation_data
         
-        result = execute_db_query(
-            ctx["namespace"],
-            ctx["db_pod"],
-            "costonprem_koku",
-            "koku_user",
+        result = execute_db_query_with_config(
+            ctx["db_config"],
             f"""
             SELECT 
                 COUNT(*) as rows_with_cost,

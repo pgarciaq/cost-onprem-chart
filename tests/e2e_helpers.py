@@ -33,6 +33,7 @@ import yaml
 from utils import (
     create_upload_package_from_files,
     execute_db_query,
+    execute_db_query_with_config,
     exec_in_pod,
     get_pod_by_label,
     wait_for_condition,
@@ -671,18 +672,6 @@ def get_application_type_id(
     return None
 
 
-def _is_transient_rbac_dependency_error(response_body: str) -> bool:
-    """True when Koku returns 424 because RBAC was briefly unreachable (rollout, etc.)."""
-    lower = response_body.lower()
-    return (
-        "rbac unavailable" in lower
-        or "failed dependency" in lower
-        or "cost-onprem-rbac-api" in lower
-        or "connection refused" in lower
-        or "max retries exceeded" in lower
-    )
-
-
 def register_source(
     namespace: str,
     pod: str,
@@ -693,7 +682,7 @@ def register_source(
     source_name: Optional[str] = None,
     bucket: str = DEFAULT_S3_BUCKET,
     container: str = "ingress",
-    max_retries: int = 8,
+    max_retries: int = 5,
     initial_retry_delay: int = 5,
 ) -> SourceRegistration:
     """Register a source in Koku Sources API.
@@ -715,7 +704,7 @@ def register_source(
         source_name: Optional custom source name (defaults to e2e-source-{cluster_id[-8:]})
         bucket: S3 bucket name
         container: Container name in the pod (default: "ingress")
-        max_retries: Maximum number of retry attempts (default: 8)
+        max_retries: Maximum number of retry attempts (default: 5)
         initial_retry_delay: Initial delay between retries in seconds (default: 5)
     
     Returns:
@@ -783,10 +772,7 @@ def register_source(
             # 5xx errors might be transient, retry
             if http_code.startswith("5"):
                 continue
-            # 424 Failed Dependency (e.g. RBAC pod restarting) is transient in lab CI.
-            if http_code == "424" and _is_transient_rbac_dependency_error(result):
-                continue
-            # Other 4xx errors are not retryable - break and fail
+            # 4xx errors are not retryable - break and fail
             break
         
         try:
@@ -945,6 +931,7 @@ def wait_for_provider(
     cluster_id: str,
     timeout: int = 300,
     interval: int = 10,
+    db_config=None,
 ) -> bool:
     """Wait for provider to be created in Koku database.
     
@@ -954,180 +941,21 @@ def wait_for_provider(
     Returns True if provider was created, False on timeout.
     """
     def check_provider():
-        result = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"""
+        query = f"""
             SELECT p.uuid FROM api_provider p
             JOIN api_providerauthentication pa ON p.authentication_id = pa.id
             WHERE pa.credentials->>'cluster_id' = '{cluster_id}'
                OR p.additional_context->>'cluster_id' = '{cluster_id}'
             """
-        )
+        if db_config is not None:
+            result = execute_db_query_with_config(db_config, query)
+        else:
+            result = execute_db_query(
+                namespace, db_pod, "costonprem_koku", "koku", query
+            )
         return result and result[0][0]
     
     return wait_for_condition(check_provider, timeout=timeout, interval=interval)
-
-
-def wait_for_processing_complete(
-    namespace: str,
-    db_pod: str,
-    cluster_id: str,
-    poll_interval: int = 15,
-    max_wait_seconds: int = 1800,
-    on_poll=None,
-) -> dict:
-    """Block until the manifest for cluster_id is fully processed.
-
-                    Completion signal: ``reporting_common_costusagereportmanifest.completed_datetime``
-                    is set on the most recent manifest for *cluster_id*.  This timestamp is written
-                    after all download, processing, and summary phases finish — mirroring the
-                    ``manifest_complete_date`` field that the IQE plugin observes via the Koku
-                    source-stats API (``GET /sources/{uuid}/stats/``).
-
-                    Per-file progress is read from ``reporting_common_costusagereportstatus``
-                    (files with ``completed_datetime IS NOT NULL``) for logging only.
-
-                    A ``max_wait_seconds`` ceiling guards against stalled pipelines.  The default
-                    (1800 s) is intentionally generous; set it lower only for tests where you know
-                    the expected processing time.
-
-    Parameters
-    ----------
-    max_wait_seconds
-        Hard ceiling.  Returns ``{"complete": False, ...}`` if the manifest
-        counter hasn't reached completion by this time.
-    on_poll
-        Optional callable invoked once per poll cycle, after the DB query but
-        before sleeping.  Use this to collect side-car metrics (e.g. CPU
-        samples) without a separate polling loop.
-
-    Returns a dict::
-
-        {
-            "complete":            bool,
-            "elapsed_s":           float,
-            "num_total_files":     int,
-            "num_processed_files": int,
-            "pending_files":       int,   # informational only
-            "schema_name":         str | None,
-        }
-    """
-    import time as _time
-
-    start = _time.time()
-
-    print(
-        f"\n[wait-processing] cluster_id={cluster_id[:8]}… "
-        f"polling every {poll_interval}s (max {max_wait_seconds}s)"
-    )
-
-    last_num_processed = -1
-
-    while True:
-        elapsed = round(_time.time() - start, 1)
-
-        if elapsed >= max_wait_seconds:
-            print(f"[wait-processing] ✗ timed out after {elapsed}s — pipeline may be stalled")
-            return {
-                "complete":            False,
-                "elapsed_s":           elapsed,
-                "num_total_files":     0,
-                "num_processed_files": -1,
-                "pending_files":       -1,
-                "schema_name":         None,
-            }
-
-        # ── 1. Fetch the most recent manifest for this cluster ──────────────
-        # Safety: cluster_id is always a test-generated UUID, never external
-        # input.  If this helper is reused with user-supplied values, switch
-        # to parameterised queries.
-        #
-        # Schema note: reporting_common_costusagereportmanifest has no
-        # num_processed_files column.  Completion is signalled by
-        # completed_datetime being set (all download/processing/summary phases
-        # done) and optionally by per-file status rows in
-        # reporting_common_costusagereportstatus.
-        manifest_rows = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"""
-            SELECT m.id,
-                   m.num_total_files,
-                   m.completed_datetime,
-                   m.state,
-                   c.schema_name
-            FROM   reporting_common_costusagereportmanifest m
-            JOIN   api_provider p ON m.provider_id = p.uuid
-            JOIN   api_customer c ON p.customer_id = c.id
-            WHERE  m.cluster_id = '{cluster_id}'
-            ORDER  BY m.creation_datetime DESC
-            LIMIT  1
-            """,
-        )
-
-        if not manifest_rows or not manifest_rows[0]:
-            print(f"[wait-processing] {elapsed}s — manifest not yet visible, waiting…")
-            _time.sleep(poll_interval)
-            continue
-
-        manifest_id, num_total, completed_dt, state_json, schema = manifest_rows[0]
-        num_total = int(num_total or 0)
-
-        # ── 2. Count per-file status rows (mirrors IQE files_processed) ──────
-        files_done_rows = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"""
-            SELECT COUNT(*) FILTER (WHERE completed_datetime IS NOT NULL) AS done,
-                   COUNT(*)                                                AS total
-            FROM   reporting_common_costusagereportstatus
-            WHERE  manifest_id = {manifest_id}
-            """,
-        )
-        files_done  = int((files_done_rows or [[0, 0]])[0][0])
-        files_total = int((files_done_rows or [[0, 0]])[0][1])
-
-        # Derive active phase from state jsonb for progress logging
-        phase = "queued"
-        if state_json:
-            import json as _json
-            try:
-                st = _json.loads(state_json) if isinstance(state_json, str) else state_json
-                for p in ("summary", "processing", "download"):
-                    if st.get(p, {}).get("start"):
-                        phase = p + ("✓" if st[p].get("end") else "…")
-                        break
-            except Exception:
-                pass
-
-        if files_done != last_num_processed:
-            last_num_processed = files_done
-
-        print(
-            f"[wait-processing] {elapsed}s — "
-            f"files {files_done}/{files_total or num_total}, phase={phase}"
-            + (f", manifest done {completed_dt}" if completed_dt else "")
-        )
-
-        if on_poll is not None:
-            try:
-                on_poll()
-            except Exception:
-                pass
-
-        # ── 3. Done when manifest.completed_datetime is set ─────────────────
-        # This is the canonical signal: all download/processing/summary phases
-        # finished.  Mirrors IQE's manifest_complete_date check.
-        if completed_dt is not None:
-            print(f"[wait-processing] ✓ complete in {elapsed}s")
-            return {
-                "complete":            True,
-                "elapsed_s":           elapsed,
-                "num_total_files":     num_total,
-                "num_processed_files": files_done,
-                "pending_files":       max(0, files_total - files_done),
-                "schema_name":         schema,
-            }
-
-        _time.sleep(poll_interval)
 
 
 def wait_for_summary_tables(
@@ -1136,48 +964,43 @@ def wait_for_summary_tables(
     cluster_id: str,
     timeout: int = 600,
     interval: int = 30,
+    db_config=None,
 ) -> Optional[str]:
     """Wait for summary tables to be populated and return schema name.
-
-    .. deprecated::
-        Use :func:`wait_for_processing_complete` instead, which monitors the
-        manifest completion signals directly and requires no time ceiling.
-        This wrapper is kept for backwards compatibility with non-performance
-        test callers.
+    
+    Returns schema name if successful, None on timeout.
     """
-    import time as _time
+    found_schema = {"name": None}
 
-    start = _time.time()
-    result = {"schema": None}
-
+    def _query(query: str):
+        if db_config is not None:
+            return execute_db_query_with_config(db_config, query)
+        return execute_db_query(namespace, db_pod, "costonprem_koku", "koku", query)
+    
     def check_summary():
-        rows = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        result = _query(
             f"""
-            SELECT c.schema_name
-            FROM   reporting_common_costusagereportmanifest m
-            JOIN   api_provider p ON m.provider_id = p.uuid
-            JOIN   api_customer c ON p.customer_id = c.id
-            WHERE  m.cluster_id = '{cluster_id}'
-            LIMIT  1
-            """,
+            SELECT c.schema_name FROM reporting_common_costusagereportmanifest m
+            JOIN api_provider p ON m.provider_id = p.uuid
+            JOIN api_customer c ON p.customer_id = c.id
+            WHERE m.cluster_id = '{cluster_id}' LIMIT 1
+            """
         )
-        if not rows or not rows[0][0]:
+        if not result or not result[0][0]:
             return False
-
-        schema = rows[0][0].strip()
-        count_rows = execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"SELECT COUNT(*) FROM {schema}.reporting_ocpusagelineitem_daily_summary "
-            f"WHERE cluster_id = '{cluster_id}'",
+        
+        schema = result[0][0].strip()
+        result = _query(
+            f"SELECT COUNT(*) FROM {schema}.reporting_ocpusagelineitem_daily_summary WHERE cluster_id = '{cluster_id}'"
         )
-        if count_rows and int(count_rows[0][0]) > 0:
-            result["schema"] = schema
+        
+        if result and int(result[0][0]) > 0:
+            found_schema["name"] = schema
             return True
         return False
-
+    
     if wait_for_condition(check_summary, timeout=timeout, interval=interval):
-        return result["schema"]
+        return found_schema["name"]
     return None
 
 
@@ -1188,22 +1011,23 @@ def wait_for_gpu_summary_tables(
     schema_name: str,
     timeout: int = 600,
     interval: int = 30,
+    db_config=None,
 ) -> bool:
     """Wait until reporting_ocp_gpu_summary_p has MIG rows for the cluster."""
 
     def check_gpu_summary():
-        result = execute_db_query(
-            namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
-            f"""
+        query = f"""
             SELECT COUNT(*) FROM {schema_name}.reporting_ocp_gpu_summary_p
             WHERE cluster_id = '{cluster_id}'
               AND mig_instance_id IS NOT NULL
               AND mig_instance_id != ''
-            """,
-        )
+            """
+        if db_config is not None:
+            result = execute_db_query_with_config(db_config, query)
+        else:
+            result = execute_db_query(
+                namespace, db_pod, "costonprem_koku", "koku", query
+            )
         return result is not None and int(result[0][0]) > 0
 
     return wait_for_condition(
@@ -1222,26 +1046,26 @@ def cleanup_database_records(
     namespace: str,
     db_pod: str,
     cluster_id: str,
+    db_config=None,
 ) -> bool:
     """Clean up database records for a cluster."""
     try:
-        # Delete file statuses first (foreign key constraint)
-        execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
-            f"""
+        status_query = f"""
             DELETE FROM reporting_common_costusagereportstatus
             WHERE manifest_id IN (
                 SELECT id FROM reporting_common_costusagereportmanifest
                 WHERE cluster_id = '{cluster_id}'
             )
             """
-        )
-        
-        # Delete manifests
-        execute_db_query(
-            namespace, db_pod, "costonprem_koku", "koku_user",
+        manifest_query = (
             f"DELETE FROM reporting_common_costusagereportmanifest WHERE cluster_id = '{cluster_id}'"
         )
+        if db_config is not None:
+            execute_db_query_with_config(db_config, status_query)
+            execute_db_query_with_config(db_config, manifest_query)
+        else:
+            execute_db_query(namespace, db_pod, "costonprem_koku", "koku", status_query)
+            execute_db_query(namespace, db_pod, "costonprem_koku", "koku", manifest_query)
         
         return True
     except Exception:

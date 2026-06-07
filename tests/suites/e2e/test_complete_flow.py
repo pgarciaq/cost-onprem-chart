@@ -40,6 +40,7 @@ from utils import (
     create_upload_package,
     create_upload_package_from_files,
     execute_db_query,
+    execute_db_query_with_config,
     get_pod_by_label,
     get_secret_value,
     wait_for_condition,
@@ -663,23 +664,13 @@ class TestCompleteDataFlow:
         assert registered_source["source_id"], "Source ID not set"
         assert registered_source["cluster_id"], "Cluster ID not set"
 
-    def test_02_provider_created_in_koku(self, cluster_config, registered_source):
+    def test_02_provider_created_in_koku(self, database_config, registered_source):
         """Step 2: Verify provider was created in Koku database via Kafka."""
-        db_pod = get_pod_by_label(
-            cluster_config.namespace,
-            "app.kubernetes.io/component=database"
-        )
-        if not db_pod:
-            pytest.skip("Database pod not found")
-        
         cluster_id = registered_source["cluster_id"]
         
         def check_provider():
-            result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_koku",
-                "koku_user",
+            result = execute_db_query_with_config(
+                database_config,
                 f"""
                 SELECT COUNT(*) FROM api_provider p
                 JOIN api_providerauthentication a ON p.authentication_id = a.id
@@ -779,23 +770,13 @@ class TestCompleteDataFlow:
             if nise_temp_dir and os.path.exists(nise_temp_dir):
                 shutil.rmtree(nise_temp_dir, ignore_errors=True)
 
-    def test_04_manifest_created_in_koku(self, cluster_config, registered_source):
+    def test_04_manifest_created_in_koku(self, database_config, registered_source):
         """Step 4: Verify manifest was created in Koku database."""
-        db_pod = get_pod_by_label(
-            cluster_config.namespace,
-            "app.kubernetes.io/component=database"
-        )
-        if not db_pod:
-            pytest.skip("Database pod not found")
-        
         cluster_id = registered_source["cluster_id"]
         
         def check_manifest():
-            result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_koku",
-                "koku_user",
+            result = execute_db_query_with_config(
+                database_config,
                 f"""
                 SELECT COUNT(*) FROM reporting_common_costusagereportmanifest
                 WHERE cluster_id = '{cluster_id}'
@@ -813,11 +794,8 @@ class TestCompleteDataFlow:
         assert success, f"Manifest not created for cluster {cluster_id}"
         
         # Validate manifest has required fields (from processing_state tests)
-        manifest_result = execute_db_query(
-            cluster_config.namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
+        manifest_result = execute_db_query_with_config(
+            database_config,
             f"""
             SELECT 
                 m.id,
@@ -843,15 +821,8 @@ class TestCompleteDataFlow:
         
         print(f"  ✅ Manifest {manifest[0]} created with {manifest[3]} files")
 
-    def test_05_files_processed_by_masu(self, cluster_config, registered_source):
+    def test_05_files_processed_by_masu(self, database_config, registered_source):
         """Step 5: Verify uploaded files were processed by MASU with proper status."""
-        db_pod = get_pod_by_label(
-            cluster_config.namespace,
-            "app.kubernetes.io/component=database"
-        )
-        if not db_pod:
-            pytest.skip("Database pod not found")
-        
         cluster_id = registered_source["cluster_id"]
         
         # File processing status codes (from Koku)
@@ -860,11 +831,8 @@ class TestCompleteDataFlow:
         FILE_STATUS_FAILED = 2
         
         def check_processing():
-            result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_koku",
-                "koku_user",
+            result = execute_db_query_with_config(
+                database_config,
                 f"""
                 SELECT s.status
                 FROM reporting_common_costusagereportmanifest m
@@ -887,11 +855,8 @@ class TestCompleteDataFlow:
         assert success, "File processing not completed"
         
         # Validate file processing status details (from processing_state tests)
-        file_status_result = execute_db_query(
-            cluster_config.namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
+        file_status_result = execute_db_query_with_config(
+            database_config,
             f"""
             SELECT 
                 s.report_name,
@@ -931,7 +896,7 @@ class TestCompleteDataFlow:
 
     @pytest.mark.timeout(900)  # 15 minutes for summary tables
     def test_06_summary_tables_populated(
-        self, cluster_config, registered_source, e2e_test_data: dict
+        self, database_config, registered_source, e2e_test_data: dict
     ):
         """Step 6: Verify Koku summary tables are populated with correct data.
         
@@ -964,21 +929,11 @@ class TestCompleteDataFlow:
                 "Cannot validate summary tables without proper OCP data format."
             )
         
-        db_pod = get_pod_by_label(
-            cluster_config.namespace,
-            "app.kubernetes.io/component=database"
-        )
-        if not db_pod:
-            pytest.skip("Database pod not found")
-        
         cluster_id = registered_source["cluster_id"]
         
         # Get tenant schema
-        schema_result = execute_db_query(
-            cluster_config.namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
+        schema_result = execute_db_query_with_config(
+            database_config,
             f"""
             SELECT c.schema_name
             FROM reporting_common_costusagereportmanifest m
@@ -991,11 +946,8 @@ class TestCompleteDataFlow:
         
         if not schema_result or not schema_result[0][0]:
             # Provide detailed diagnostic information
-            manifest_check = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_koku",
-                "koku_user",
+            manifest_check = execute_db_query_with_config(
+                database_config,
                 f"""
                 SELECT m.id, m.provider_id, m.num_total_files, m.num_processed_files
                 FROM reporting_common_costusagereportmanifest m
@@ -1028,11 +980,8 @@ class TestCompleteDataFlow:
         schema_name = schema_result[0][0].strip()
         
         def check_summary():
-            result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_koku",
-                "koku_user",
+            result = execute_db_query_with_config(
+                database_config,
                 f"""
                 SELECT COUNT(*),
                        COALESCE(SUM(pod_request_cpu_core_hours), 0),
@@ -1052,11 +1001,8 @@ class TestCompleteDataFlow:
         
         if not success:
             # Get diagnostic info about what was processed
-            file_status = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_koku",
-                "koku_user",
+            file_status = execute_db_query_with_config(
+                database_config,
                 f"""
                 SELECT rf.report_name, rf.completed_datetime, rf.status
                 FROM reporting_common_costusagereportmanifest m
@@ -1093,11 +1039,8 @@ class TestCompleteDataFlow:
         
         # Validate processing state (from processing_state tests)
         # Check for stuck manifests
-        manifest_state = execute_db_query(
-            cluster_config.namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
+        manifest_state = execute_db_query_with_config(
+            database_config,
             f"""
             SELECT 
                 m.id,
@@ -1129,11 +1072,8 @@ class TestCompleteDataFlow:
                 print(f"  ⚠️  Manifest {manifest_id} has failure in state: {state[:100]}...")
         
         # Get summary data stats
-        summary_stats = execute_db_query(
-            cluster_config.namespace,
-            db_pod,
-            "costonprem_koku",
-            "koku_user",
+        summary_stats = execute_db_query_with_config(
+            database_config,
             f"""
             SELECT 
                 COUNT(*) as row_count,
@@ -1150,7 +1090,7 @@ class TestCompleteDataFlow:
 
     @pytest.mark.timeout(300)  # 5 minutes for ROS recommendations
     def test_07_kruize_experiments_created(
-        self, cluster_config, registered_source, e2e_test_data: dict
+        self, cluster_config, database_config, kruize_database_config, registered_source, e2e_test_data: dict
     ):
         """Step 7: Verify ROS recommendations were created from ROS events.
         
@@ -1170,21 +1110,13 @@ class TestCompleteDataFlow:
                 "Simple data format may not contain required fields for ROS processing."
             )
         
-        db_pod = get_pod_by_label(
-            cluster_config.namespace,
-            "app.kubernetes.io/component=database"
-        )
-        if not db_pod:
-            pytest.skip("Database pod not found")
-        
-        secret_name = f"{cluster_config.helm_release_name}-db-credentials"
         cluster_id = registered_source["cluster_id"]
         
         def check_native_recommendations():
             """Check native engine recommendation_sets in costonprem_ros."""
             result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
+                database_config.namespace,
+                database_config.pod_name,
                 "costonprem_ros",
                 "postgres",
                 f"SELECT COUNT(*) FROM recommendation_sets WHERE cluster_uuid = '{cluster_id}'",
@@ -1193,17 +1125,9 @@ class TestCompleteDataFlow:
         
         def check_kruize_experiments():
             """Check legacy Kruize experiments in costonprem_kruize."""
-            kruize_user = get_secret_value(cluster_config.namespace, secret_name, "kruize-user")
-            kruize_password = get_secret_value(cluster_config.namespace, secret_name, "kruize-password")
-            if not kruize_user:
-                return False
-            result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_kruize",
-                kruize_user,
+            result = execute_db_query_with_config(
+                kruize_database_config,
                 f"SELECT COUNT(*) FROM kruize_experiments WHERE cluster_name LIKE '%{cluster_id}%'",
-                password=kruize_password,
             )
             return result is not None and int(result[0][0]) > 0
         
@@ -1250,7 +1174,7 @@ class TestCompleteDataFlow:
 
     @pytest.mark.timeout(300)  # 5 minutes for recommendations
     def test_08_recommendations_generated(
-        self, cluster_config, registered_source, e2e_test_data: dict
+        self, kruize_database_config, registered_source, e2e_test_data: dict
     ):
         """Step 8: Verify recommendations were generated by Kruize.
         
@@ -1267,33 +1191,18 @@ class TestCompleteDataFlow:
                 "Simple data format may not contain sufficient data for Kruize recommendations."
             )
         
-        db_pod = get_pod_by_label(
-            cluster_config.namespace,
-            "app.kubernetes.io/component=database"
-        )
-        if not db_pod:
-            pytest.skip("Database pod not found")
-        
-        secret_name = f"{cluster_config.helm_release_name}-db-credentials"
-        kruize_user = get_secret_value(cluster_config.namespace, secret_name, "kruize-user")
-        kruize_password = get_secret_value(cluster_config.namespace, secret_name, "kruize-password")
-        
-        if not kruize_user:
+        if not kruize_database_config.user:
             pytest.skip("Kruize credentials not found - ROS may not be deployed")
         
         cluster_id = registered_source["cluster_id"]
         
         # First check if experiments exist
-        experiment_result = execute_db_query(
-            cluster_config.namespace,
-            db_pod,
-            "costonprem_kruize",
-            kruize_user,
+        experiment_result = execute_db_query_with_config(
+            kruize_database_config,
             f"""
             SELECT COUNT(*) FROM kruize_experiments
             WHERE cluster_name LIKE '%{cluster_id}%'
             """,
-            password=kruize_password,
         )
         
         experiment_count = int(experiment_result[0][0]) if experiment_result else 0
@@ -1304,16 +1213,12 @@ class TestCompleteDataFlow:
             )
         
         def check_recommendations():
-            result = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_kruize",
-                kruize_user,
+            result = execute_db_query_with_config(
+                kruize_database_config,
                 f"""
                 SELECT COUNT(*) FROM kruize_recommendations
                 WHERE cluster_name LIKE '%{cluster_id}%'
                 """,
-                password=kruize_password,
             )
             return result is not None and int(result[0][0]) > 0
         
@@ -1326,11 +1231,8 @@ class TestCompleteDataFlow:
         
         if not success:
             # Get experiment details for diagnostics
-            exp_details = execute_db_query(
-                cluster_config.namespace,
-                db_pod,
-                "costonprem_kruize",
-                kruize_user,
+            exp_details = execute_db_query_with_config(
+                kruize_database_config,
                 f"""
                 SELECT experiment_name, status, created_at
                 FROM kruize_experiments
@@ -1338,7 +1240,6 @@ class TestCompleteDataFlow:
                 ORDER BY created_at DESC
                 LIMIT 3
                 """,
-                password=kruize_password,
             )
             
             exp_info = ""

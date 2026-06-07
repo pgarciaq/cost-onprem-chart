@@ -405,6 +405,31 @@ def create_pod_session(
 # =============================================================================
 
 
+def get_koku_db_credentials(
+    namespace: str,
+    release_name: str = "cost-onprem",
+) -> dict[str, Optional[str]]:
+    """Read Koku database credentials from the chart's db-credentials secret."""
+    secret_name = f"{release_name}-db-credentials"
+    return {
+        "user": get_secret_value(namespace, secret_name, "koku-user") or "koku",
+        "password": get_secret_value(namespace, secret_name, "koku-password"),
+        "database": "costonprem_koku",
+    }
+
+
+def execute_db_query_with_config(db_config, query: str) -> Optional[list[tuple]]:
+    """Execute a SQL query using a DatabaseConfig fixture instance."""
+    return execute_db_query(
+        namespace=db_config.namespace,
+        pod_name=db_config.pod_name,
+        database=db_config.database,
+        user=db_config.user,
+        query=query,
+        password=db_config.password,
+    )
+
+
 def execute_db_query(
     namespace: str,
     pod_name: str,
@@ -444,6 +469,18 @@ def execute_db_query(
 # =============================================================================
 
 
+def normalize_org_id(org_id: str) -> str:
+    """Return bare org_id for JWT/API use.
+
+    Koku prepends ``org`` to the JWT ``org_id`` claim to form the tenant schema
+    (e.g. ``1234567`` → ``org1234567``). Values like ``org1234567`` would create
+    ``orgorg1234567`` and break source/manifest matching in the listener.
+    """
+    if org_id.startswith("org") and org_id[3:].isdigit():
+        return org_id[3:]
+    return org_id
+
+
 def create_rh_identity_header(org_id: str, account_number: str = None) -> str:
     """Create X-Rh-Identity header value for Koku authentication.
 
@@ -461,6 +498,7 @@ def create_rh_identity_header(org_id: str, account_number: str = None) -> str:
     Returns:
         Base64-encoded identity JSON string
     """
+    org_id = normalize_org_id(org_id)
     if account_number is None:
         account_number = org_id
 
@@ -517,6 +555,7 @@ def create_identity_header_custom(
     Returns:
         Base64-encoded identity JSON string
     """
+    org_id = normalize_org_id(org_id)
     if account_number is None:
         account_number = org_id
 
