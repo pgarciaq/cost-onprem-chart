@@ -103,6 +103,52 @@ def ros_database_config(cluster_config, database_config):
     }
 
 
+def _masu_reship_ros_available(cluster_config) -> tuple[bool, str]:
+    """Return whether masu exposes POST /reship_ros/ (required for BH re-ingestion)."""
+    pod = get_pod_by_label(
+        cluster_config.namespace, "app.kubernetes.io/component=ros-api"
+    )
+    if not pod:
+        return False, "ros-api pod not found for masu reship probe"
+
+    masu_base = f"http://{cluster_config.helm_release_name}-koku-masu:8000"
+    reship_url = f"{masu_base}/api/cost-management/v1/reship_ros/"
+    status = exec_in_pod(
+        cluster_config.namespace,
+        pod,
+        [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "-X",
+            "POST",
+            reship_url,
+        ],
+        timeout=30,
+    )
+    code = (status or "").strip()
+    if code == "404":
+        return (
+            False,
+            "masu reship_ros endpoint returns 404 (deploy koku-masu image with reship_ros support)",
+        )
+    if not code or code == "000":
+        return False, f"masu reship_ros probe failed (curl status {code!r})"
+    return True, ""
+
+
+@pytest.fixture(scope="module")
+def business_hours_reship_pipeline(business_hours_feature, cluster_config):
+    """Skip BH reship-dependent tests when masu cannot re-publish ROS history."""
+    available, reason = _masu_reship_ros_available(cluster_config)
+    if not available:
+        pytest.skip(f"Business hours reship pipeline unavailable: {reason}")
+    return True
+
+
 @pytest.fixture(scope="module")
 def business_hours_feature(ros_api_url: str, keycloak_config, cluster_config):
     """Skip the module when business hours is disabled or routes are hidden."""
@@ -911,6 +957,7 @@ class TestBusinessHoursE2E:
     def test_happy_path_dual_recommendations(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -961,6 +1008,7 @@ class TestBusinessHoursE2E:
     def test_schedule_change_trailing_reship(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -1048,6 +1096,7 @@ class TestBusinessHoursE2E:
     def test_masu_unavailable_retry(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         cluster_config,
         ros_api_url: str,
         bh_auth: dict,
@@ -1112,6 +1161,7 @@ class TestBusinessHoursE2E:
     def test_namespace_mixed_schedules(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -1235,6 +1285,7 @@ class TestBusinessHoursE2E:
     def test_namespace_enabled_false(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -1273,6 +1324,7 @@ class TestBusinessHoursE2E:
     def test_no_historical_data(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         org_id: str,
@@ -1314,6 +1366,7 @@ class TestBusinessHoursE2E:
     def test_reingestion_sequence(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -1489,6 +1542,7 @@ class TestBusinessHoursExtended:
     def test_first_time_90_day_reship(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -1525,6 +1579,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_012_metrics_reship_attempts_total(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         cluster_config,
         ros_api_url: str,
         bh_auth: dict,
@@ -1563,6 +1618,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_013_kafka_consumer_failure_redelivery(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         cluster_config,
         ros_api_url: str,
         bh_auth: dict,
@@ -1641,6 +1697,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_015_schedule_change_during_active_reship(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         cluster_config,
         http_session: requests.Session,
         ros_api_url: str,
@@ -1719,6 +1776,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_016_incremental_visibility(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         ros_api_url: str,
         bh_auth: dict,
         bh_cluster_uuid: str,
@@ -1782,6 +1840,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_017_delete_schedule_prunes_digests(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         http_session: requests.Session,
         ros_api_url: str,
         bh_auth: dict,
@@ -1870,6 +1929,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_019_multiple_orgs_isolated(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         http_session: requests.Session,
         ros_api_url: str,
         bh_auth: dict,
@@ -1940,6 +2000,7 @@ class TestBusinessHoursExtendedScenarios:
     def test_bh_e2e_020_concurrent_puts_max_two_reships(
         self,
         business_hours_feature,
+        business_hours_reship_pipeline,
         cluster_config,
         http_session: requests.Session,
         ros_api_url: str,

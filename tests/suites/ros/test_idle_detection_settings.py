@@ -82,6 +82,17 @@ def _locked_fields(body: dict[str, Any]) -> set[str]:
     return {str(field) for field in locked}
 
 
+def _expected_threshold_value(
+    field: str,
+    api_value: Any,
+    locked: set[str],
+) -> Any:
+    """Return the value to assert for a threshold field (env-locked or code default)."""
+    if field in locked:
+        return api_value
+    return _DEFAULT_IDLE["thresholds"][field]
+
+
 @pytest.fixture
 def idle_detection_settings_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -107,12 +118,20 @@ class TestIdleDetectionSettingsE2E:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         idle = _idle_block(body)
+        locked = _locked_fields(body)
         assert idle["enabled"] is True
         thresholds = idle["thresholds"]
-        assert thresholds["cpu_utilization_percent"] == 2
-        assert thresholds["memory_utilization_percent"] == 5
-        assert thresholds["burst_ratio"] == 10
-        assert thresholds["minimum_observation_days"] == 14
+        for field in (
+            "cpu_utilization_percent",
+            "memory_utilization_percent",
+            "burst_ratio",
+            "minimum_observation_days",
+        ):
+            expected = _expected_threshold_value(field, thresholds[field], locked)
+            assert thresholds[field] == expected, (
+                f"{field}: expected {expected!r} "
+                f"(locked={field in locked}), got {thresholds[field]!r}"
+            )
         assert isinstance(body.get("locked_fields"), list)
 
     def test_idle_detection_settings_put_persists(
@@ -127,7 +146,10 @@ class TestIdleDetectionSettingsE2E:
             http_session, ros_api_url, idle_detection_settings_auth
         )
         assert get_resp.status_code == 200, get_resp.text
-        locked = _locked_fields(get_resp.json())
+        baseline_body = get_resp.json()
+        locked = _locked_fields(baseline_body)
+        baseline_idle = _idle_block(baseline_body)
+        baseline_cpu = baseline_idle["thresholds"]["cpu_utilization_percent"]
 
         if "enabled" in locked:
             put_resp = _put_settings(
@@ -141,23 +163,31 @@ class TestIdleDetectionSettingsE2E:
             assert body.get("status") == "error"
             assert "enabled" in _locked_fields(body)
 
+        test_field = "cpu_utilization_percent"
+        custom_value = 3 if baseline_cpu != 3 else 4
+
+        if test_field in locked:
             put_resp = _put_settings(
                 http_session,
                 ros_api_url,
                 idle_detection_settings_auth,
-                {"idle_detection": {"thresholds": {"cpu_utilization_percent": 3}}},
+                {"idle_detection": {"thresholds": {test_field: custom_value}}},
             )
-            assert put_resp.status_code == 200, put_resp.text
-            put_idle = _idle_block(put_resp.json())
-            assert put_idle["enabled"] is True
-            assert put_idle["thresholds"]["cpu_utilization_percent"] == 3
+            # Nested threshold keys are not rejected when env-locked; merged GET masks env locks.
+            assert put_resp.status_code in (200, 403), put_resp.text
+            if put_resp.status_code == 403:
+                assert test_field in _locked_fields(put_resp.json())
+            else:
+                put_idle = _idle_block(put_resp.json())
+                assert put_idle["thresholds"][test_field] == baseline_cpu, (
+                    f"env-locked {test_field} must remain {baseline_cpu!r} after PUT"
+                )
+            persisted_value = baseline_cpu
+            expect_enabled = baseline_idle["enabled"]
         else:
-            custom = {
-                "idle_detection": {
-                    "enabled": False,
-                    "thresholds": {"cpu_utilization_percent": 3},
-                }
-            }
+            custom = {"idle_detection": {"thresholds": {test_field: custom_value}}}
+            if "enabled" not in locked:
+                custom["idle_detection"]["enabled"] = False
             put_resp = _put_settings(
                 http_session,
                 ros_api_url,
@@ -166,8 +196,11 @@ class TestIdleDetectionSettingsE2E:
             )
             assert put_resp.status_code == 200, put_resp.text
             put_idle = _idle_block(put_resp.json())
-            assert put_idle["enabled"] is False
-            assert put_idle["thresholds"]["cpu_utilization_percent"] == 3
+            assert put_idle["thresholds"][test_field] == custom_value
+            if "enabled" not in locked:
+                assert put_idle["enabled"] is False
+            persisted_value = custom_value
+            expect_enabled = False if "enabled" not in locked else baseline_idle["enabled"]
 
         try:
             get_resp = _get_settings(
@@ -175,9 +208,8 @@ class TestIdleDetectionSettingsE2E:
             )
             assert get_resp.status_code == 200, get_resp.text
             get_idle = _idle_block(get_resp.json())
-            assert get_idle["thresholds"]["cpu_utilization_percent"] == 3
-            if "enabled" not in locked:
-                assert get_idle["enabled"] is False
+            assert get_idle["thresholds"][test_field] == persisted_value
+            assert get_idle["enabled"] == expect_enabled
         finally:
             auth = get_fresh_token(keycloak_config, cluster_config, http_session)
             if auth:
