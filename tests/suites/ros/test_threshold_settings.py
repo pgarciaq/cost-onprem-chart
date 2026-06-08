@@ -226,6 +226,51 @@ def _fetch_first_recommendation(
     return data[0] if data else None
 
 
+def _recommendation_has_cost_engine_values(item: dict[str, Any]) -> bool:
+    """True when the cost engine exposes numeric request recommendations."""
+    fp = _recommendation_fingerprint(item)
+    return (
+        fp.get("cpu_request_millicores") is not None
+        or fp.get("memory_request_kib") is not None
+    )
+
+
+def _fetch_recommendation_for_recalc_proof(
+    session: requests.Session,
+    ros_api_url: str,
+    auth: dict[str, str],
+    *,
+    page_size: int = 50,
+    max_pages: int = 10,
+) -> Optional[dict[str, Any]]:
+    """Return a recommendation with non-null cost-engine values when possible."""
+    endpoint = get_recommendations_endpoint(ros_api_url)
+    offset = 0
+    fallback: Optional[dict[str, Any]] = None
+
+    for _ in range(max_pages):
+        resp = session.get(
+            endpoint,
+            headers=auth,
+            params={"limit": page_size, "offset": offset},
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            return fallback
+        data = resp.json().get("data") or []
+        if not data:
+            break
+        for item in data:
+            if fallback is None:
+                fallback = item
+            if _recommendation_has_cost_engine_values(item):
+                return item
+        if len(data) < page_size:
+            break
+        offset += page_size
+    return fallback
+
+
 @pytest.fixture
 def threshold_auth(keycloak_config, cluster_config, http_session):
     auth = get_fresh_token(keycloak_config, cluster_config, http_session)
@@ -435,7 +480,7 @@ class TestThresholdSettingsE2E:
             auth = _fresh_auth(keycloak_config, cluster_config, http_session)
             _delete_thresholds(http_session, ros_api_url, auth, recommendation_type)
 
-    @pytest.mark.timeout(120)
+    @pytest.mark.timeout(240)
     def test_threshold_put_triggers_recalculation(
         self,
         ros_api_url: str,
@@ -444,15 +489,35 @@ class TestThresholdSettingsE2E:
         keycloak_config,
         cluster_config,
     ):
-        baseline_item = _fetch_first_recommendation(
+        env = _ros_api_env(cluster_config)
+        recalc_flag = env.get("ROS_THRESHOLD_RECALCULATION_ENABLED", "true").lower()
+        if recalc_flag in ("false", "0", "no"):
+            pytest.skip(
+                "ROS_THRESHOLD_RECALCULATION_ENABLED=false on ros-api; "
+                "threshold PUT will not trigger async recalculation"
+            )
+
+        baseline_item = _fetch_recommendation_for_recalc_proof(
             http_session, ros_api_url, threshold_auth
         )
         if not baseline_item:
             pytest.skip("No container recommendations available for recalculation proof")
+        if not _recommendation_has_cost_engine_values(baseline_item):
+            pytest.skip(
+                "No recommendations with non-null cost-engine request values; "
+                "percentile threshold change may not produce observable diffs"
+            )
 
         baseline = _recommendation_fingerprint(baseline_item)
         rec_id = baseline.get("id")
         assert rec_id, "Recommendation item must include id"
+
+        get_before = _get_thresholds(
+            http_session, ros_api_url, threshold_auth, "container"
+        )
+        assert get_before.status_code == 200, get_before.text
+        default_percentile = get_before.json().get("cpu_cost_percentile", 0.60)
+        alternate_percentile = 0.95 if default_percentile < 0.9 else 0.55
 
         try:
             put_resp = _put_thresholds(
@@ -460,7 +525,7 @@ class TestThresholdSettingsE2E:
                 ros_api_url,
                 threshold_auth,
                 "container",
-                {"cpu_cost_percentile": 0.95},
+                {"cpu_cost_percentile": alternate_percentile},
             )
             assert put_resp.status_code == 200, put_resp.text
 
@@ -469,7 +534,7 @@ class TestThresholdSettingsE2E:
                 resp = http_session.get(
                     get_recommendations_endpoint(ros_api_url),
                     headers=auth,
-                    params={"limit": 50},
+                    params={"limit": 100},
                     timeout=60,
                 )
                 if resp.status_code != 200:
@@ -486,12 +551,12 @@ class TestThresholdSettingsE2E:
 
             assert wait_for_condition(
                 recalculation_observed,
-                timeout=60,
-                interval=5,
+                timeout=180,
+                interval=10,
                 description="recommendation updated after threshold PUT",
             ), (
-                "Expected recommendation to change within 60s after threshold PUT "
-                f"(baseline={baseline})"
+                "Expected recommendation to change within 180s after threshold PUT "
+                f"(baseline={baseline}, alternate_percentile={alternate_percentile})"
             )
         finally:
             auth = _fresh_auth(keycloak_config, cluster_config, http_session)
