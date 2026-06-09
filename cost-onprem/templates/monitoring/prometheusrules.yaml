@@ -1,0 +1,26 @@
+{{- if .Values.monitoring.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "cost-onprem.fullname" . }}-ros-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cost-onprem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ros-processor
+spec:
+  groups:
+    - name: ros-ingestion.rules
+      rules:
+        - alert: ROSIngestionFileFailures
+          expr: increase(ros_ingestion_file_failures_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: ros-processor
+          annotations:
+            summary: ROS per-file ingestion failures detected
+            description: >-
+              ros-ocp-backend recorded permanent file ingestion failures in the last 15 minutes.
+              Check report_file_status for failed rows and use reship_ros to recover missing files.
+{{- end }}
