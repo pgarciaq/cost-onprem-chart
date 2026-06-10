@@ -54,6 +54,8 @@ from e2e_helpers import install_nise
 from e2e_helpers import (
     E2E_CLUSTER_PREFIX,
     DEFAULT_NISE_CONFIG,
+    generate_nise_data,
+    get_nise_template_path,
     is_nise_available,
     install_nise,
     ensure_nise_available,
@@ -191,10 +193,29 @@ def generate_nise_ocp_data(
     # Find generated files
     all_csv_files = list(Path(output_dir).rglob("*.csv"))
     pod_usage_files = [f for f in all_csv_files if "pod_usage" in f.name]
-    ros_usage_files = [f for f in all_csv_files if "ros_usage" in f.name and "namespace" not in f.name]
+    namespace_usage_files = [
+        f
+        for f in all_csv_files
+        if (
+            "ros_namespace" in f.name
+            or "namespace_usage" in f.name
+            or "ros-openshift-namespace" in f.name
+        )
+    ]
+    ros_usage_files = [
+        f
+        for f in all_csv_files
+        if "ros_usage" in f.name and f not in namespace_usage_files
+    ]
     node_label_files = [f for f in all_csv_files if "node_label" in f.name]
     namespace_label_files = [f for f in all_csv_files if "namespace_label" in f.name]
     manifest_files = list(Path(output_dir).rglob("*manifest.json"))
+
+    # Namespace-level ROS CSVs must ship with container ros_usage for digest processing.
+    if namespace_usage_files:
+        ros_usage_files = list(
+            dict.fromkeys(ros_usage_files + namespace_usage_files)
+        )
     
     # Prioritize pod_usage files (for Koku summary tables), then ROS files
     csv_files = pod_usage_files + [f for f in all_csv_files if f not in pod_usage_files]
@@ -203,7 +224,8 @@ def generate_nise_ocp_data(
         "output_dir": output_dir,
         "csv_files": [str(f) for f in csv_files],
         "pod_usage_files": [str(f) for f in pod_usage_files],
-        "ros_usage_files": [str(f) for f in ros_usage_files],  # Container-level data for ROS
+        "ros_usage_files": [str(f) for f in ros_usage_files],  # Container + namespace ROS data
+        "namespace_usage_files": [str(f) for f in namespace_usage_files],
         "node_label_files": [str(f) for f in node_label_files],  # Node labels for summary tables
         "namespace_label_files": [str(f) for f in namespace_label_files],  # Namespace labels
         "manifest_files": [str(f) for f in manifest_files],
@@ -374,22 +396,52 @@ class TestCompleteDataFlow:
         temp_dir = tempfile.mkdtemp(prefix="e2e-nise-")
         
         # Check for custom static report (only use if explicitly set)
-        # NOTE: Do NOT use the default static report file as it has hardcoded dates
-        # that will cause "missing start or end dates" errors in Koku
         static_report = os.environ.get("E2E_NISE_STATIC_REPORT")
-        
+        ros_template = os.environ.get("E2E_NISE_TEMPLATE", "ocp_report_ros_0.yml")
+
         try:
-            nise_data = generate_nise_ocp_data(
-                cluster_id=e2e_cluster_id,
-                start_date=start_date,
-                end_date=end_date,
-                output_dir=temp_dir,
-                static_report_file=static_report,  # Will generate dynamic report if None
-            )
+            if static_report:
+                nise_data = generate_nise_ocp_data(
+                    cluster_id=e2e_cluster_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    output_dir=temp_dir,
+                    static_report_file=static_report,
+                )
+            elif get_nise_template_path(ros_template):
+                print(f"  Using NISE IQE template: {ros_template}")
+                nise_data = generate_nise_data(
+                    cluster_id=e2e_cluster_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    output_dir=temp_dir,
+                    include_ros=True,
+                    iqe_template=ros_template,
+                )
+                nise_data["generator"] = "nise"
+                nise_data["cluster_id"] = e2e_cluster_id
+                nise_data["start_date"] = start_date
+                nise_data["end_date"] = end_date
+            else:
+                nise_data = generate_nise_ocp_data(
+                    cluster_id=e2e_cluster_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    output_dir=temp_dir,
+                    static_report_file=None,
+                )
             
-            pod_usage_count = len(nise_data.get('pod_usage_files', []))
-            total_count = len(nise_data.get('csv_files', []))
-            print(f"  ✅ NISE generated {total_count} CSV files ({pod_usage_count} pod_usage)")
+            pod_usage_count = len(nise_data.get("pod_usage_files", []))
+            total_count = len(
+                nise_data.get("csv_files")
+                or nise_data.get("all_files")
+                or []
+            )
+            ros_count = len(nise_data.get("ros_usage_files", []))
+            print(
+                f"  ✅ NISE generated {total_count} CSV files "
+                f"({pod_usage_count} pod_usage, {ros_count} ros_usage)"
+            )
             
             # Read the pod_usage CSV file for upload (required for summary tables)
             pod_usage_files = nise_data.get("pod_usage_files", [])
