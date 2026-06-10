@@ -13,6 +13,7 @@ generators:
               pods:
                 - pod:
                   pod_name: pod-ros-A11
+                  workload: deployment
                   cpu_request: 2
                   mem_request_gig: 1
                   cpu_limit: 3
@@ -25,6 +26,7 @@ generators:
                   labels: label_ros:ros_A11
                 - pod:
                   pod_name: pod-ros-A12
+                  workload: deployment
                   cpu_request: 3
                   mem_request_gig: 3
                   cpu_limit: 3
@@ -40,6 +42,7 @@ generators:
               pods:
                 - pod:
                   pod_name: pod-ros-A21
+                  workload: deployment
                   cpu_request: 10
                   mem_request_gig: 4
                   cpu_limit: 10
@@ -55,6 +58,7 @@ generators:
               pods:
                 - pod:
                   pod_name: pod-ros-idle1
+                  workload: deployment
                   cpu_request: 10
                   cpu_limit: 20
                   mem_request_gig: 8
@@ -70,6 +74,7 @@ generators:
               pods:
                 - pod:
                   pod_name: pod-ros-oom1
+                  workload: deployment
                   cpu_request: 2
                   cpu_limit: 4
                   mem_request_gig: 4
@@ -92,6 +97,7 @@ generators:
               pods:
                 - pod:
                   pod_name: pod-ros-B11
+                  workload: deployment
                   cpu_request: 1
                   mem_request_gig: 1
                   cpu_limit: 5
@@ -107,6 +113,7 @@ generators:
               pods:
                 - pod:
                   pod_name: pod-ros-B21
+                  workload: deployment
                   cpu_request: 5
                   mem_request_gig: 2
                   cpu_limit: 10
