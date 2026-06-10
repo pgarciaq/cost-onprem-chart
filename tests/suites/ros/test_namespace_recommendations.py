@@ -2,21 +2,108 @@
 
 from __future__ import annotations
 
+import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
 import pytest
 import requests
 
+from conftest import obtain_jwt_token
+from e2e_helpers import (
+    ensure_nise_available,
+    generate_nise_data,
+    get_koku_api_url,
+    register_source,
+    upload_with_retry,
+    wait_for_provider,
+    wait_for_summary_tables,
+)
 from suites.ros.test_container_detail import (
     _assert_container_list_engine_filter,
     _assert_paginated_envelope,
 )
 from suites.ros.test_recommendations import get_fresh_token
-from utils import execute_db_query, get_secret_value
+from utils import (
+    create_rh_identity_header,
+    create_upload_package_from_files,
+    execute_db_query,
+    get_pod_by_label,
+    get_secret_value,
+    wait_for_condition,
+)
 
 _STALE_DATA_NOTIFICATION_CODE = 2
+_UPLOAD_ORG_ID = "1234567"
+_NISE_TEMPLATE = "ocp_report_ros_0.yml"
+_MIN_NAMESPACE_PROJECTS = 2
+_INGEST_TIMEOUT = 720
+
+
+def _wait_for_namespace_digest_rows(
+    cluster_config,
+    db_pod: str,
+    cluster_id: str,
+    org_id: str,
+    timeout: int = _INGEST_TIMEOUT,
+) -> bool:
+    def check():
+        result = execute_db_query(
+            cluster_config.namespace,
+            db_pod,
+            "costonprem_ros",
+            "postgres",
+            f"""
+            SELECT COUNT(*) FROM daily_namespace_digests
+            WHERE cluster_uuid = '{cluster_id}'
+              AND org_id = '{org_id}'
+            """,
+        )
+        return result is not None and int(result[0][0]) > 0
+
+    return wait_for_condition(
+        check,
+        timeout=timeout,
+        interval=20,
+        description="daily_namespace_digests population",
+    )
+
+
+def _wait_for_joinable_namespace_rows(
+    cluster_config,
+    db_pod: str,
+    cluster_id: str,
+    org_id: str,
+    min_projects: int,
+    timeout: int = _INGEST_TIMEOUT,
+) -> bool:
+    def check():
+        result = execute_db_query(
+            cluster_config.namespace,
+            db_pod,
+            "costonprem_ros",
+            "postgres",
+            f"""
+            SELECT COUNT(DISTINCT ns.namespace_name)
+            FROM namespace_recommendation_sets ns
+            JOIN clusters c ON c.cluster_uuid = ns.cluster_uuid
+            JOIN rh_accounts r ON r.id = c.tenant_id
+            WHERE ns.org_id = '{org_id}'
+              AND r.org_id = '{org_id}'
+              AND ns.cluster_uuid = '{cluster_id}'
+              AND ns.term IS NOT NULL
+              AND ns.schedule_type = 'all_hours'
+            """,
+        )
+        return result is not None and int(result[0][0]) >= min_projects
+
+    return wait_for_condition(
+        check,
+        timeout=timeout,
+        interval=20,
+        description="joinable namespace_recommendation_sets",
+    )
 
 
 def _namespaces_url(ros_api_url: str) -> str:
@@ -213,9 +300,124 @@ def namespace_auth(keycloak_config, cluster_config, http_session):
     return auth
 
 
+@pytest.fixture(scope="module", autouse=True)
+def namespace_recommendation_seed_data(
+    cluster_config,
+    keycloak_config,
+    ingress_url,
+):
+    """Upload ocp_report_ros_0 NISE data with namespace ROS CSVs before namespace API tests."""
+    if not ensure_nise_available():
+        pytest.skip("NISE is not available for namespace recommendation E2E")
+
+    ingress_pod = get_pod_by_label(
+        cluster_config.namespace, "app.kubernetes.io/component=ingress"
+    )
+    db_pod = get_pod_by_label(
+        cluster_config.namespace, "app.kubernetes.io/component=database"
+    )
+    if not ingress_pod or not db_pod:
+        pytest.skip("Ingress or database pod not found")
+
+    cluster_id = str(uuid.uuid4())
+    admin_identity = create_rh_identity_header(_UPLOAD_ORG_ID)
+    koku_url = get_koku_api_url(
+        cluster_config.helm_release_name, cluster_config.namespace
+    )
+    reg = register_source(
+        namespace=cluster_config.namespace,
+        pod=ingress_pod,
+        api_url=koku_url,
+        rh_identity_header=admin_identity,
+        cluster_id=cluster_id,
+        org_id=_UPLOAD_ORG_ID,
+        source_name=f"ns-rec-{cluster_id[-8:]}",
+        container="ingress",
+    )
+    if not reg.source_id:
+        pytest.fail(f"Failed to register source for namespace E2E cluster {cluster_id}")
+
+    if not wait_for_provider(
+        cluster_config.namespace, db_pod, cluster_id, timeout=300
+    ):
+        pytest.fail(f"Provider not created for namespace E2E cluster {cluster_id}")
+
+    end_date = datetime.utcnow() - timedelta(days=1)
+    start_date = end_date - timedelta(days=14)
+    temp_dir = tempfile.mkdtemp(prefix="ns-rec-ingest-")
+
+    files = generate_nise_data(
+        cluster_id=cluster_id,
+        start_date=start_date,
+        end_date=end_date,
+        output_dir=temp_dir,
+        include_ros=True,
+        iqe_template=_NISE_TEMPLATE,
+    )
+    pod_files = files.get("pod_usage_files") or []
+    ros_files = list(files.get("ros_usage_files") or [])
+    if not pod_files:
+        pytest.fail("NISE did not generate pod_usage files for namespace E2E")
+    if not ros_files:
+        pytest.fail("NISE did not generate ros_usage files for namespace E2E")
+    if not files.get("namespace_usage_files"):
+        pytest.fail(
+            "NISE did not generate ocp_ros_namespace_usage files; "
+            "namespace tests require --ros-ocp-info namespace CSVs"
+        )
+
+    package_path = create_upload_package_from_files(
+        pod_usage_files=pod_files,
+        ros_usage_files=ros_files,
+        cluster_id=cluster_id,
+        start_date=start_date,
+        end_date=end_date,
+        node_label_files=files.get("node_label_files") or None,
+        namespace_label_files=files.get("namespace_label_files") or None,
+    )
+
+    upload_url = f"{ingress_url.rstrip('/')}/v1/upload"
+    upload_session = requests.Session()
+    upload_session.verify = False
+    token = obtain_jwt_token(keycloak_config)
+    response = upload_with_retry(
+        upload_session, upload_url, package_path, token.authorization_header
+    )
+    assert response.status_code in (200, 201, 202), response.text
+
+    schema = wait_for_summary_tables(
+        cluster_config.namespace,
+        db_pod,
+        cluster_id,
+        timeout=420,
+    )
+    if not schema:
+        pytest.fail("Summary tables not populated after namespace recommendation upload")
+
+    if not _wait_for_namespace_digest_rows(
+        cluster_config, db_pod, cluster_id, _UPLOAD_ORG_ID, timeout=_INGEST_TIMEOUT
+    ):
+        pytest.fail(
+            "daily_namespace_digests not populated; namespace ROS CSV ingest failed"
+        )
+
+    if not _wait_for_joinable_namespace_rows(
+        cluster_config,
+        db_pod,
+        cluster_id,
+        _UPLOAD_ORG_ID,
+        _MIN_NAMESPACE_PROJECTS,
+        timeout=_INGEST_TIMEOUT,
+    ):
+        pytest.fail(
+            f"Expected at least {_MIN_NAMESPACE_PROJECTS} joinable namespace "
+            f"recommendations for cluster {cluster_id}"
+        )
+
+
 @pytest.mark.ros
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(900)
 class TestNamespaceRecommendationsE2E:
     """Namespace recommendation list and detail endpoints."""
 
