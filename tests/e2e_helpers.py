@@ -638,6 +638,7 @@ def enable_ocp_tags(
             "-d",
             payload,
         ],
+        container="masu",
     )
     return result in ("200", "201", "202")
 
