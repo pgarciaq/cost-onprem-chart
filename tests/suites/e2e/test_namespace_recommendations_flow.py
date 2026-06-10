@@ -176,8 +176,8 @@ class TestNamespaceRecommendationsExtendedFlow:
 
     @pytest.fixture(scope="class")
     def namespace_e2e_cluster_id(self) -> str:
-        short = uuid.uuid4().hex[:8]
-        return f"e2e-ns-{short}"
+        # ROS Kafka validation requires a real cluster UUID, not a prefixed alias.
+        return str(uuid.uuid4())
 
     def test_namespace_e2e_upload_and_api(
         self,
