@@ -549,6 +549,13 @@ def generate_nise_data(
             dict.fromkeys(files["ros_usage_files"] + snapshot_files)
         )
 
+    # Namespace-level ROS CSVs must ship with container ros_usage for digest processing.
+    namespace_files = files.get("namespace_usage_files") or []
+    if namespace_files:
+        files["ros_usage_files"] = list(
+            dict.fromkeys(files["ros_usage_files"] + namespace_files)
+        )
+
     if files["cluster_quota_files"] and iqe_template:
         enrich_cluster_quota_csv_files(
             files["cluster_quota_files"],
