@@ -572,6 +572,7 @@ create_kafka_topics() {
 
     local required_topics=(
         "hccm.ros.events:3:$replication_factor"
+        "hccm.ros.events.dlq:3:$replication_factor"
         "platform.sources.event-stream:3:$replication_factor"
         "rosocp.kruize.recommendations:3:$replication_factor"
         "platform.upload.announce:3:$replication_factor"
@@ -588,6 +589,11 @@ create_kafka_topics() {
 
         echo_info "Creating topic: $topic_name (partitions: $partitions, replication: $rf)"
 
+        local retention_ms="604800000"
+        if [[ "$topic_name" == *.dlq ]]; then
+            retention_ms="2592000000"
+        fi
+
         cat <<EOF | kubectl apply -f -
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
@@ -600,7 +606,7 @@ spec:
   partitions: $partitions
   replicas: $rf
   config:
-    retention.ms: "604800000"
+    retention.ms: "$retention_ms"
     segment.ms: "86400000"
 EOF
 
