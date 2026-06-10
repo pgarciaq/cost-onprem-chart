@@ -12,6 +12,7 @@ import requests
 
 from conftest import obtain_jwt_token
 from e2e_helpers import (
+    enable_ocp_tags,
     ensure_nise_available,
     generate_nise_data,
     get_koku_api_url,
@@ -67,6 +68,37 @@ def _wait_for_namespace_digest_rows(
         timeout=timeout,
         interval=20,
         description="daily_namespace_digests population",
+    )
+
+
+def _wait_for_tag_values(
+    cluster_config,
+    db_pod: str,
+    org_id: str,
+    tag_key: str,
+    tag_value: str,
+    timeout: int = 300,
+) -> bool:
+    schema = f"org{org_id}"
+
+    def check():
+        result = execute_db_query(
+            cluster_config.namespace,
+            db_pod,
+            "postgres",
+            "postgres",
+            f"""
+            SELECT COUNT(*) FROM {schema}.reporting_ocptags_values
+            WHERE key = '{tag_key}' AND value = '{tag_value}'
+            """,
+        )
+        return result is not None and int(result[0][0]) > 0
+
+    return wait_for_condition(
+        check,
+        timeout=timeout,
+        interval=15,
+        description=f"tag {tag_key}={tag_value} in reporting_ocptags_values",
     )
 
 
@@ -342,6 +374,9 @@ def namespace_recommendation_seed_data(
     ):
         pytest.fail(f"Provider not created for namespace E2E cluster {cluster_id}")
 
+    if not enable_ocp_tags(cluster_config, org_id=_UPLOAD_ORG_ID):
+        pytest.fail("Failed to enable OCP tags via masu enabled_tags API")
+
     end_date = datetime.utcnow() - timedelta(days=1)
     start_date = end_date - timedelta(days=14)
     temp_dir = tempfile.mkdtemp(prefix="ns-rec-ingest-")
@@ -412,6 +447,19 @@ def namespace_recommendation_seed_data(
         pytest.fail(
             f"Expected at least {_MIN_NAMESPACE_PROJECTS} joinable namespace "
             f"recommendations for cluster {cluster_id}"
+        )
+
+    if not _wait_for_tag_values(
+        cluster_config,
+        db_pod,
+        _UPLOAD_ORG_ID,
+        "environment",
+        "production",
+        timeout=300,
+    ):
+        pytest.fail(
+            "reporting_ocptags_values missing environment=production after namespace ingest; "
+            "check namespace_label CSV processing and enabled_tags"
         )
 
 
