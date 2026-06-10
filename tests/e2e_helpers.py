@@ -521,7 +521,11 @@ def generate_nise_data(
                     files["ros_vm_gpu_device_files"].append(full_path)
                 elif "ros_usage" in f:
                     files["ros_usage_files"].append(full_path)
-                elif "ros_namespace" in f or "namespace_usage" in f:
+                elif (
+                    "ros_namespace" in f
+                    or "namespace_usage" in f
+                    or "ros-openshift-namespace" in f
+                ):
                     files["namespace_usage_files"].append(full_path)
                 elif "cluster-quota" in f or "cluster_quota" in f:
                     files["cluster_quota_files"].append(full_path)
