@@ -75,9 +75,10 @@ def _wait_for_tag_values(
     cluster_config,
     db_pod: str,
     org_id: str,
+    cluster_id: str,
     tag_key: str,
     tag_value: str,
-    timeout: int = 300,
+    timeout: int = 420,
 ) -> bool:
     schema = f"org{org_id}"
 
@@ -90,6 +91,7 @@ def _wait_for_tag_values(
             f"""
             SELECT COUNT(*) FROM {schema}.reporting_ocptags_values
             WHERE key = '{tag_key}' AND value = '{tag_value}'
+              AND '{cluster_id}' = ANY(cluster_ids)
             """,
         )
         return result is not None and int(result[0][0]) > 0
@@ -98,7 +100,7 @@ def _wait_for_tag_values(
         check,
         timeout=timeout,
         interval=15,
-        description=f"tag {tag_key}={tag_value} in reporting_ocptags_values",
+        description=f"tag {tag_key}={tag_value} for cluster {cluster_id}",
     )
 
 
@@ -449,15 +451,18 @@ def namespace_recommendation_seed_data(
             f"recommendations for cluster {cluster_id}"
         )
 
-    # Tag rows populate during namespace label summarization; tag filter test skips if absent.
-    _wait_for_tag_values(
+    if not _wait_for_tag_values(
         cluster_config,
         db_pod,
         _UPLOAD_ORG_ID,
+        cluster_id,
         "environment",
         "production",
-        timeout=300,
-    )
+        timeout=420,
+    ):
+        pytest.fail(
+            f"reporting_ocptags_values missing environment=production for cluster {cluster_id}"
+        )
 
 
 @pytest.mark.ros
