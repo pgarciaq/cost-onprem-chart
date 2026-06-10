@@ -16,6 +16,7 @@ from e2e_helpers import (
     ensure_nise_available,
     generate_nise_data,
     get_koku_api_url,
+    mirror_koku_ocp_tags_to_ros_db,
     register_source,
     upload_with_retry,
     wait_for_provider,
@@ -462,6 +463,11 @@ def namespace_recommendation_seed_data(
     ):
         pytest.fail(
             f"reporting_ocptags_values missing environment=production for cluster {cluster_id}"
+        )
+
+    if not mirror_koku_ocp_tags_to_ros_db(cluster_config, org_id=_UPLOAD_ORG_ID):
+        pytest.fail(
+            "Failed to mirror reporting_ocptags_values from costonprem_koku to costonprem_ros"
         )
 
 
