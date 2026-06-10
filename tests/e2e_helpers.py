@@ -597,6 +597,44 @@ def get_masu_api_url(helm_release_name: str, namespace: str) -> str:
     )
 
 
+def mirror_koku_ocp_tags_to_ros_db(cluster_config, org_id: str = "1234567") -> bool:
+    """Copy reporting_ocptags_values from costonprem_koku into costonprem_ros.
+
+    On-prem ROS connects to costonprem_ros only; tag filters read
+    org{org_id}.reporting_ocptags_values in that database. Koku populates the
+    canonical rows in costonprem_koku after namespace label summarization.
+    """
+    schema = f"org{org_id}"
+    db_pod = get_pod_by_label(
+        cluster_config.namespace, "app.kubernetes.io/component=database"
+    )
+    if not db_pod:
+        return False
+
+    copy_sql = (
+        f"COPY (SELECT uuid, key, value, cluster_ids, cluster_aliases, namespaces, nodes "
+        f"FROM {schema}.reporting_ocptags_values) TO STDOUT"
+    )
+    result = exec_in_pod(
+        cluster_config.namespace,
+        db_pod,
+        [
+            "bash",
+            "-lc",
+            (
+                f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
+                f"-c 'TRUNCATE {schema}.reporting_ocptags_values' && "
+                f"psql -U postgres -d costonprem_koku -c \"{copy_sql}\" | "
+                f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
+                f"-c 'COPY {schema}.reporting_ocptags_values "
+                f"(uuid, key, value, cluster_ids, cluster_aliases, namespaces, nodes) FROM STDIN'"
+            ),
+        ],
+        timeout=120,
+    )
+    return result is not None and "ERROR" not in (result or "").upper()
+
+
 def enable_ocp_tags(
     cluster_config,
     org_id: str = "1234567",
