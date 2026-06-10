@@ -589,6 +589,59 @@ def get_koku_api_url(helm_release_name: str, namespace: str) -> str:
     )
 
 
+def get_masu_api_url(helm_release_name: str, namespace: str) -> str:
+    """Get the internal Masu API URL (on-prem unified masu service)."""
+    return (
+        f"http://{helm_release_name}-koku-masu."
+        f"{namespace}.svc.cluster.local:8000/api/cost-management/v1"
+    )
+
+
+def enable_ocp_tags(
+    cluster_config,
+    org_id: str = "1234567",
+    tag_keys: Optional[List[str]] = None,
+) -> bool:
+    """Enable OCP tag keys in the tenant schema so Koku populates reporting_ocptags_values."""
+    tag_keys = tag_keys or ["environment", "team", "app", "version", "storageclass"]
+    schema = f"org{org_id}"
+    masu_pod = get_pod_by_label(
+        cluster_config.namespace, "app.kubernetes.io/component=cost-processor"
+    )
+    if not masu_pod:
+        return False
+
+    masu_url = get_masu_api_url(cluster_config.helm_release_name, cluster_config.namespace)
+    payload = json.dumps(
+        {
+            "schema": schema,
+            "action": "create",
+            "tag_keys": tag_keys,
+            "provider_type": "ocp",
+        }
+    )
+    result = exec_in_pod(
+        cluster_config.namespace,
+        masu_pod,
+        [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "-X",
+            "POST",
+            f"{masu_url}/enabled_tags/",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            payload,
+        ],
+    )
+    return result in ("200", "201", "202")
+
+
 def get_source_type_id(
     namespace: str,
     pod: str,
