@@ -198,6 +198,12 @@ resolve_nise_repo_path() {
         return 0
     fi
 
+    local hypervisor_default="${HOME}/dev/nise"
+    if [[ -f "${hypervisor_default}/pyproject.toml" ]]; then
+        echo "$hypervisor_default"
+        return 0
+    fi
+
     return 1
 }
 
@@ -283,6 +289,11 @@ run_pytest() {
     export NAMESPACE="${NAMESPACE:-cost-onprem}"
     export HELM_RELEASE_NAME="${HELM_RELEASE_NAME:-cost-onprem}"
     export KEYCLOAK_NAMESPACE="${KEYCLOAK_NAMESPACE:-keycloak}"
+
+    # RBAC tests invoke `nise` as a subprocess; ensure the venv CLI is on PATH.
+    if [[ -x "${VENV_DIR}/bin/nise" ]]; then
+        export PATH="${VENV_DIR}/bin:${PATH}"
+    fi
 
     # Change to tests directory
     cd "$TESTS_DIR"

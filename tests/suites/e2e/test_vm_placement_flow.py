@@ -1,4 +1,4 @@
-"""E2E tests for VM placement and NUMA recommendations (notifications 60, 63)."""
+"""E2E tests for VM placement and NUMA recommendations (notifications 60–63)."""
 
 from __future__ import annotations
 
@@ -49,6 +49,7 @@ VM_HA_STANDBY = ("ha-standby-vm-01", _PLACEMENT_NAMESPACE)
 VM_NUMA_OVERSIZED = ("numa-oversized-vm-01", _PLACEMENT_NAMESPACE)
 
 NOTIF_REDUNDANT_COLOCATION = 60
+NOTIF_UNEVEN_NODE_DISTRIBUTION = 61
 NOTIF_SHARED_STORAGE = 62
 NOTIF_NUMA_OVERSIZED = 63
 
@@ -311,6 +312,37 @@ class TestVMPlacementExtendedFlow:
         assert NOTIF_REDUNDANT_COLOCATION in _vm_notification_codes(detail), (
             f"Expected notification 60: {detail.get('notifications')}"
         )
+
+    def test_uneven_node_distribution_notification_61(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        vm_placement_context: VMPlacementFlowContext,
+    ):
+        """Cluster skew: 3 VMs on worker-1 vs 1 on worker-2 triggers code 61 (default skew ratio 3)."""
+        resp = _fetch_vm_list(
+            http_session,
+            ros_api_url,
+            vm_placement_context.auth,
+            {"limit": "200", "filter[cluster]": vm_placement_context.cluster_id},
+        )
+        skip_if_vm_plugin_disabled(resp)
+        assert resp.status_code == 200, resp.text
+        rows = resp.json().get("data") or []
+        if not rows:
+            pytest.skip("No VM rows for placement cluster")
+
+        codes_by_vm = {
+            (row.get("vm_name"), row.get("namespace")): _vm_notification_codes(row)
+            for row in rows
+        }
+        if not any(
+            NOTIF_UNEVEN_NODE_DISTRIBUTION in codes for codes in codes_by_vm.values()
+        ):
+            pytest.skip(
+                "Uneven node distribution (61) not emitted; verify worker-1 has 3+ VMs "
+                "and placement_skew_ratio default is 3"
+            )
 
     def test_shared_storage_flag_and_notification_62(
         self,

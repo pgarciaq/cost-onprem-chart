@@ -573,6 +573,9 @@ class TestVMRecommendationsExtended:
                 "(expected 200; check deployment routing/auth)"
             )
         codes = {entry["code"] for entry in resp.json().get("data") or []}
+        assert codes & {60, 61, 62, 63}, (
+            f"expected placement codes 60–63 in catalog, got {codes}"
+        )
         assert 64 in codes, f"expected power-off code 64 in catalog, got {codes}"
         assert codes & {65, 66}, (
             f"expected network QoS code 65 or 66 in catalog, got {codes}"

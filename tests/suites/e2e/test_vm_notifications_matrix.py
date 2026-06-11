@@ -1,5 +1,5 @@
 """
-E2E: VM notification codes 37–57 — direct assertions and cross-references.
+E2E: VM notification codes 37–63 — direct assertions and cross-references.
 
 Run direct matrix ingest (codes 37–42):
   NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_notifications_matrix
@@ -45,7 +45,7 @@ _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_vm_notifications.yml"
 _NOTIF_NAMESPACE = "vm-notifications"
 
-# VM notification codes 37–57 (see ros-ocp-backend docs/architecture/notification-codes.md)
+# VM notification codes 37–63 (see ros-ocp-backend docs/architecture/notification-codes.md)
 NOTIF_DISK_GROWING_HYPERVISOR = 37
 NOTIF_NO_GUEST_AGENT = 38
 NOTIF_HIGH_IO = 39
@@ -70,6 +70,7 @@ NOTIF_TIMESLICE_UNSAFE_FB = 57
 NOTIF_VM_IO_SEQUENTIAL = 58
 NOTIF_VM_IO_RANDOM = 59
 NOTIF_VM_REDUNDANT_COLOCATION = 60
+NOTIF_VM_UNEVEN_NODE_DISTRIBUTION = 61
 NOTIF_VM_SHARED_STORAGE = 62
 NOTIF_VM_NUMA_OVERSIZED = 63
 
@@ -106,6 +107,7 @@ VM_NOTIF_E2E_CROSS_REF: dict[int, str] = {
     NOTIF_VM_IO_SEQUENTIAL: "test_vm_io_profiling_flow.py::TestVMIOProfilingExtendedFlow::test_notification_code_58_sequential",
     NOTIF_VM_IO_RANDOM: "test_vm_io_profiling_flow.py::TestVMIOProfilingExtendedFlow::test_notification_code_59_random",
     NOTIF_VM_REDUNDANT_COLOCATION: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_redundant_colocation_notification_60",
+    NOTIF_VM_UNEVEN_NODE_DISTRIBUTION: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_uneven_node_distribution_notification_61",
     NOTIF_VM_SHARED_STORAGE: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_shared_storage_flag_and_notification_62",
     NOTIF_VM_NUMA_OVERSIZED: "test_vm_placement_flow.py::TestVMPlacementExtendedFlow::test_numa_oversized_notification_63",
 }
@@ -178,6 +180,7 @@ class TestVMNotificationMatrix:
     Codes 43–49: Cross-referenced to dedicated extended E2E flows (or unit/IQE).
     Codes 50–57: GPU/network/time-slicing — cross-referenced to dedicated test files.
     Codes 58–59: Disk I/O pattern — cross-referenced to test_vm_io_profiling_flow.py.
+    Codes 60–63: Placement / NUMA — cross-referenced to test_vm_placement_flow.py.
     """
 
     @pytest.fixture(scope="class")
@@ -280,7 +283,7 @@ class TestVMNotificationMatrix:
             pytest.fail("Could not obtain JWT for VM notification E2E")
         return VMNotificationsFlowContext(cluster_id=vm_notif_cluster_id, auth=auth)
 
-    def test_notification_catalog_covers_codes_37_through_59(self):
+    def test_notification_catalog_covers_codes_37_through_63(self):
         """Registry must list every VM notification code (direct or cross-ref)."""
         covered = set(VM_NOTIF_CODES_DIRECT) | set(VM_NOTIF_E2E_CROSS_REF)
         assert covered == set(VM_NOTIF_CODES_ALL)
@@ -418,3 +421,19 @@ class TestVMNotificationMatrix:
     def test_notification_code_59_io_random(self):
         """Random disk I/O pattern. See test_vm_io_profiling_flow.py."""
         pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_IO_RANDOM])
+
+    def test_notification_code_60_redundant_colocation(self):
+        """Same-node HA pair. See test_vm_placement_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_REDUNDANT_COLOCATION])
+
+    def test_notification_code_61_uneven_node_distribution(self):
+        """Uneven VM count per node. See test_vm_placement_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_UNEVEN_NODE_DISTRIBUTION])
+
+    def test_notification_code_62_shared_storage(self):
+        """Correlated workload shared PVC. See test_vm_placement_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_SHARED_STORAGE])
+
+    def test_notification_code_63_numa_oversized(self):
+        """VM memory exceeds NUMA node. See test_vm_placement_flow.py."""
+        pytest.skip(VM_NOTIF_E2E_CROSS_REF[NOTIF_VM_NUMA_OVERSIZED])

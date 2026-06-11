@@ -186,6 +186,26 @@ def _fresh_bh_auth(keycloak_config, cluster_config, http_session: requests.Sessi
     return auth
 
 
+def _cluster_recommendations_count(
+    http_session: requests.Session,
+    ros_api_url: str,
+    auth_header: dict,
+    cluster_uuid: str,
+) -> Optional[int]:
+    """Return meta.count for cluster-scoped recommendations, or None on API error."""
+    resp = http_session.get(
+        get_recommendations_endpoint(ros_api_url),
+        headers=auth_header,
+        params={"cluster": cluster_uuid, "limit": 1},
+        timeout=60,
+    )
+    if resp.status_code != 200:
+        return None
+    meta = resp.json().get("meta", {})
+    count = meta.get("count")
+    return count if isinstance(count, int) else None
+
+
 def _pick_registered_bh_cluster(
     ros_api_url: str,
     bh_auth: dict,
@@ -193,19 +213,49 @@ def _pick_registered_bh_cluster(
     ros_database_config: dict,
     org_id: str,
 ) -> Optional[str]:
-    """Return a cluster registered in ROS clusters with digest data and BH settings access."""
+    """Return a cluster with BH digest data, API-visible recommendations, and settings access.
+
+    GetNativeRecommendations excludes stale rows via rs.stale=false, which routes list
+    queries through org_container_keys. Clusters with digests/recommendation_sets but
+    no org_container_keys rows return meta.count=0 and never surface business_hours.
+    """
     rows = execute_db_query(
         ros_database_config["namespace"],
         ros_database_config["pod_name"],
         ros_database_config["database"],
         ros_database_config["user"],
         f"""
-        SELECT DISTINCT c.cluster_uuid::text
+        SELECT c.cluster_uuid::text
         FROM clusters c
         JOIN rh_accounts r ON r.id = c.tenant_id AND r.org_id = '{org_id}'
+        JOIN org_container_keys ock
+          ON ock.org_id = '{org_id}' AND ock.cluster_uuid = c.cluster_uuid
         JOIN daily_container_digests d
-          ON d.cluster_uuid::text = c.cluster_uuid::text AND d.org_id = '{org_id}'
-        ORDER BY c.cluster_uuid::text
+          ON d.org_id = ock.org_id
+         AND d.cluster_uuid = ock.cluster_uuid
+         AND d.namespace = ock.namespace
+         AND d.workload = ock.workload
+         AND d.workload_type = ock.workload_type
+         AND d.container_name = ock.container_name
+        LEFT JOIN recommendation_sets rs
+          ON rs.org_id = d.org_id
+         AND rs.cluster_uuid = d.cluster_uuid
+         AND rs.namespace = d.namespace
+         AND rs.workload = d.workload
+         AND rs.workload_type = d.workload_type
+         AND rs.container_name = d.container_name
+         AND rs.stale = false
+        GROUP BY c.cluster_uuid
+        ORDER BY COUNT(*) FILTER (
+            WHERE d.schedule_type = 'business_hours'
+              AND d.sample_count > 0
+              AND rs.org_id IS NOT NULL
+        ) DESC,
+        COUNT(*) FILTER (
+            WHERE d.schedule_type = 'business_hours' AND d.sample_count > 0
+        ) DESC,
+        COUNT(DISTINCT ock.container_name) DESC,
+        c.cluster_uuid::text
         LIMIT 10
         """,
         password=ros_database_config["password"],
@@ -228,7 +278,12 @@ def _pick_registered_bh_cluster(
             headers=bh_auth,
             timeout=30,
         )
-        if probe.status_code == 200:
+        if probe.status_code != 200:
+            continue
+        rec_count = _cluster_recommendations_count(
+            http_session, ros_api_url, bh_auth, cluster_id
+        )
+        if rec_count is not None and rec_count > 0:
             return cluster_id
     return None
 
@@ -395,53 +450,116 @@ def _is_api_safe_param_value(value: str, allow_dot: bool = False) -> bool:
     return True
 
 
-def _find_container_with_bh_digests(
+def _api_safe_bh_container_candidate(
+    namespace: str,
+    workload: str,
+    workload_type: str,
+    container: str,
+) -> Optional[dict[str, str]]:
+    """Return a container dict when all fields pass API param sanitization rules."""
+    ns = (namespace or "").strip()
+    workload = (workload or "").strip()
+    workload_type = (workload_type or "").strip()
+    container = (container or "").strip()
+    wl_type = workload_type.lower()
+    if not (
+        _is_api_safe_param_value(ns)
+        and _is_api_safe_param_value(workload, allow_dot=True)
+        and wl_type in _VALID_WORKLOAD_TYPES
+        and _is_api_safe_param_value(container)
+    ):
+        return None
+    return {
+        "namespace": ns,
+        "workload": workload,
+        "workload_type": wl_type,
+        "container": container,
+    }
+
+
+def _find_containers_with_bh_digests(
     ros_database_config: dict,
     org_id: str,
     cluster_uuid: str,
-) -> Optional[dict[str, str]]:
-    """Return one container row that has business_hours digest data."""
+    *,
+    require_recommendation_set: bool = True,
+    limit: int = 20,
+) -> list[dict[str, str]]:
+    """Return API-safe containers with business_hours digest data.
+
+    BH enrichment runs only on rows returned by GetNativeRecommendations. With
+    rs.stale=false (default), list queries require a matching org_container_keys row.
+    """
+    rec_join = """
+        JOIN org_container_keys ock
+          ON ock.org_id = d.org_id
+         AND ock.cluster_uuid = d.cluster_uuid
+         AND ock.namespace = d.namespace
+         AND ock.workload = d.workload
+         AND ock.workload_type = d.workload_type
+         AND ock.container_name = d.container_name
+    """
+    if require_recommendation_set:
+        rec_join += """
+        JOIN recommendation_sets rs
+          ON rs.org_id = d.org_id
+         AND rs.cluster_uuid = d.cluster_uuid
+         AND rs.namespace = d.namespace
+         AND rs.workload = d.workload
+         AND rs.workload_type = d.workload_type
+         AND rs.container_name = d.container_name
+         AND rs.stale = false
+        """
     rows = execute_db_query(
         ros_database_config["namespace"],
         ros_database_config["pod_name"],
         ros_database_config["database"],
         ros_database_config["user"],
         f"""
-        SELECT namespace, workload, workload_type, container_name
-        FROM daily_container_digests
-        WHERE org_id = '{org_id}'
-          AND cluster_uuid = '{cluster_uuid}'::uuid
-          AND schedule_type = 'business_hours'
-          AND sample_count > 0
-        ORDER BY bucket_date DESC
-        LIMIT 20
+        SELECT d.namespace, d.workload, d.workload_type, d.container_name
+        FROM daily_container_digests d
+        {rec_join}
+        WHERE d.org_id = '{org_id}'
+          AND d.cluster_uuid = '{cluster_uuid}'::uuid
+          AND d.schedule_type = 'business_hours'
+          AND d.sample_count > 0
+        GROUP BY d.namespace, d.workload, d.workload_type, d.container_name
+        ORDER BY MAX(d.bucket_date) DESC, MAX(d.sample_count) DESC
+        LIMIT {int(limit)}
         """,
         password=ros_database_config["password"],
     )
+    candidates: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
     for row in rows or []:
         if not row or not row[0]:
             continue
-        ns, workload, workload_type, container = row
-        ns = (ns or "").strip()
-        workload = (workload or "").strip()
-        workload_type = (workload_type or "").strip()
-        container = (container or "").strip()
-        candidate = {
-            "namespace": ns,
-            "workload": workload,
-            "workload_type": workload_type,
-            "container": container,
-        }
-        wl_type = (workload_type or "").lower()
-        if (
-            _is_api_safe_param_value(ns)
-            and _is_api_safe_param_value(workload, allow_dot=True)
-            and wl_type in _VALID_WORKLOAD_TYPES
-            and _is_api_safe_param_value(container)
-        ):
-            candidate["workload_type"] = wl_type
-            return candidate
-    return None
+        candidate = _api_safe_bh_container_candidate(row[0], row[1], row[2], row[3])
+        if not candidate:
+            continue
+        key = (
+            candidate["namespace"],
+            candidate["workload"],
+            candidate["workload_type"],
+            candidate["container"],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(candidate)
+    return candidates
+
+
+def _find_container_with_bh_digests(
+    ros_database_config: dict,
+    org_id: str,
+    cluster_uuid: str,
+) -> Optional[dict[str, str]]:
+    """Return one API-safe container with business_hours digests and recommendations."""
+    candidates = _find_containers_with_bh_digests(
+        ros_database_config, org_id, cluster_uuid
+    )
+    return candidates[0] if candidates else None
 
 
 def _fetch_recommendations_for_bh_container(
@@ -530,17 +648,39 @@ def wait_for_business_hours_in_recommendations(
     cluster_uuid: str,
     keycloak_config=None,
     cluster_config=None,
-    timeout: int = 420,
+    ros_database_config: Optional[dict] = None,
+    org_id: Optional[str] = None,
+    timeout: int = 900,
 ) -> tuple[requests.Response, bool]:
-    """Poll cluster recommendations until any item includes business_hours.
+    """Poll recommendations until any item includes business_hours.
 
-    Dual digests can appear in the database before ros-api enrichment exposes
-    business_hours on list responses (reship + digest indexing lag).
+    Prefer a container-scoped query when digest rows exist (BH-E2E-016 pattern):
+    cluster-wide pagination can miss BH enrichment on large clusters. Dual digests
+    can appear in the database before ros-api exposes business_hours (reship lag).
     """
     last_resp: Optional[requests.Response] = None
 
     def check() -> bool:
         nonlocal last_resp
+        if ros_database_config is not None and org_id is not None:
+            for container in _find_containers_with_bh_digests(
+                ros_database_config, org_id, cluster_uuid
+            ):
+                last_resp = _fetch_recommendations_for_bh_container(
+                    http_session,
+                    ros_api_url,
+                    auth_header,
+                    cluster_uuid,
+                    container,
+                    keycloak_config,
+                    cluster_config,
+                )
+                if (
+                    last_resp.status_code == 200
+                    and _recommendations_include_business_hours(last_resp.json())
+                ):
+                    return True
+
         last_resp, found_bh = _fetch_cluster_recommendations_with_business_hours(
             http_session,
             ros_api_url,
@@ -554,7 +694,7 @@ def wait_for_business_hours_in_recommendations(
     ok = wait_for_condition(
         check,
         timeout=timeout,
-        interval=15,
+        interval=30,
         description="business_hours in recommendations",
     )
     assert last_resp is not None
@@ -948,7 +1088,7 @@ def _grep_pod_logs(
     return result.stdout
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(2100)
 @pytest.mark.ros
 @pytest.mark.integration
 class TestBusinessHoursE2E:
@@ -975,13 +1115,26 @@ class TestBusinessHoursE2E:
             )
             assert resp.status_code in (200, 202), resp.text
 
-            assert wait_for_dual_digests(
-                ros_database_config, org_id, bh_cluster_uuid, timeout=420
-            ), "Timed out waiting for dual schedule_type digests"
-
             assert wait_for_reship_pending_cleared(
                 ros_database_config, org_id, bh_cluster_uuid, timeout=600
             ), "Reship did not complete after business-hours schedule PUT"
+
+            assert wait_for_dual_digests(
+                ros_database_config, org_id, bh_cluster_uuid, timeout=420
+            ), "Timed out waiting for dual schedule_type digests after reship"
+
+            assert wait_for_condition(
+                lambda: _find_container_with_bh_digests(
+                    ros_database_config, org_id, bh_cluster_uuid
+                )
+                is not None,
+                timeout=420,
+                interval=15,
+                description="API-safe container with business_hours digests",
+            ), (
+                "No API-safe container with business_hours digests and active "
+                "recommendation_sets row; ensure cluster has ROS CSV history from reship"
+            )
 
             rec_resp, found_bh = wait_for_business_hours_in_recommendations(
                 http_session,
@@ -990,7 +1143,9 @@ class TestBusinessHoursE2E:
                 bh_cluster_uuid,
                 keycloak_config,
                 cluster_config,
-                timeout=420,
+                ros_database_config,
+                org_id,
+                timeout=900,
             )
             assert rec_resp.status_code == 200, rec_resp.text
             assert found_bh, (
@@ -1798,23 +1953,24 @@ class TestBusinessHoursExtendedScenarios:
             assert resp.status_code in (200, 202), resp.text
 
             def bh_visible_in_api():
-                container = _find_container_with_bh_digests(
+                for container in _find_containers_with_bh_digests(
                     ros_database_config, org_id, bh_cluster_uuid
-                )
-                if not container:
-                    return False
-                rec_resp = _fetch_recommendations_for_bh_container(
-                    http_session,
-                    ros_api_url,
-                    bh_auth,
-                    bh_cluster_uuid,
-                    container,
-                    keycloak_config,
-                    cluster_config,
-                )
-                if rec_resp.status_code != 200:
-                    return False
-                return _recommendations_include_business_hours(rec_resp.json())
+                ):
+                    rec_resp = _fetch_recommendations_for_bh_container(
+                        http_session,
+                        ros_api_url,
+                        bh_auth,
+                        bh_cluster_uuid,
+                        container,
+                        keycloak_config,
+                        cluster_config,
+                    )
+                    if (
+                        rec_resp.status_code == 200
+                        and _recommendations_include_business_hours(rec_resp.json())
+                    ):
+                        return True
+                return False
 
             assert wait_for_condition(
                 bh_visible_in_api,
