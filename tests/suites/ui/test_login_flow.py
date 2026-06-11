@@ -61,7 +61,8 @@ class TestLoginFlow:
         assert "/oauth2/callback" not in page.url, (
             f"OAuth2 callback did not complete. Page stuck at: {page.url}"
         )
-        expect(page).not_to_have_url(re.compile(f".*{keycloak_config.realm}.*"))
+        # Match Keycloak host/realm path only — not app routes like /openshift/cost-management
+        expect(page).not_to_have_url(re.compile(r".*keycloak.*"))
 
     def test_invalid_credentials_shows_error(self, page: Page, ui_url: str, keycloak_config, ui_requires_oauth):
         """Verify invalid credentials show an error message."""

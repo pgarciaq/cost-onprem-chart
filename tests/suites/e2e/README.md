@@ -113,6 +113,7 @@ pytest tests/suites/e2e/test_scenarios.py -v -m scenario
 | VM instance types | `tests/suites/e2e/test_vm_instance_types_flow.py` | extended | Weekly |
 | VM enhancements | `tests/suites/e2e/test_vm_enhancements_flow.py` | extended | Weekly |
 | VM MVP promotions | `tests/suites/e2e/test_vm_mvp_promotions_flow.py` | extended | Weekly |
+| VM placement flow | `tests/suites/e2e/test_vm_placement_flow.py` | extended | Weekly |
 
 **Recommendation:** Run default CI on every PR; schedule
 `NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm` at least weekly (or before
@@ -134,6 +135,19 @@ after `ocp_ros_vm_gpu_device` ingest. Uses NISE template `ocp_report_vm_mvp_prom
 
 ```bash
 NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_mvp_promotions_flow
+```
+
+---
+
+## VM placement flow (`test_vm_placement_flow.py`)
+
+Extended E2E for VM placement and NUMA checks: same-node redundancy (**60**), uneven node
+distribution (**61**), shared storage correlation (**62**), and NUMA oversized (**63**).
+Uses NISE template `ocp_report_vm_placement.yml` (3 VMs on `worker-1`, 1 on `worker-2` for
+skew detection).
+
+```bash
+NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended -k vm_placement_flow
 ```
 
 ---

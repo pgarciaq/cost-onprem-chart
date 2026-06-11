@@ -20,6 +20,7 @@ iqe-cost-management-plugin/iqe_cost_management/data/openshift/
 | `ocp_report_vm.yml` | VM recommendation E2E — `OCPVirtualMachineGenerator` (guest agent, idle, Linux/Windows) |
 | `ocp_report_vm_gpu.yml` | VM GPU E2E — GPU columns, classifications 50–53, `filter[has_gpu]`, gn1 matching |
 | `ocp_report_vm_io_profiling.yml` | VM disk I/O pattern E2E — sequential/random classification, notifications 58–59 |
+| `ocp_report_vm_placement.yml` | VM placement / NUMA E2E — notifications 60–63 (redundancy, node skew, shared storage, NUMA) |
 | `ocp_report_vm_enhancements.yml` | VM MVP enhancements — notifications 46–49, kernel reserve, gn1 catalog |
 | `ocp_report_snapshot_classification.yml` | Snapshot staleness E2E — deterministic stale/orphaned/never_restored/active inventory |
 | `ocp_report_ros_0.yml` | ROS optimization testing - multiple nodes with varied CPU/memory usage patterns |

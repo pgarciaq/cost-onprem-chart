@@ -1,5 +1,6 @@
 ---
-# OCP VM ROS data for placement / NUMA E2E (notifications 60, 62, 63).
+# OCP VM ROS data for placement / NUMA E2E (notifications 60–63).
+# worker-1 hosts 3 VMs vs 1 on worker-2 to trigger uneven distribution (code 61).
 # Use with generate_nise_data(..., iqe_template="ocp_report_vm_placement.yml", include_ros=True)
 generators:
   - OCPVirtualMachineGenerator:
@@ -28,6 +29,17 @@ generators:
           fixed_usage:
             cpu_pct: 0.38
             mem_pct: 0.52
+        - vm_name: skew-filler-vm-01
+          namespace: vm-placement
+          node_name: worker-1
+          guest_os: linux
+          guest_agent: true
+          vcpu: 2
+          memory_gib: 4
+          disk_gib: 50
+          fixed_usage:
+            cpu_pct: 0.25
+            mem_pct: 0.40
         - vm_name: numa-oversized-vm-01
           namespace: vm-placement
           node_name: worker-2

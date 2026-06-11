@@ -145,6 +145,22 @@ generators:
 {pods_yaml}"""
 
 
+def _resolve_nise_executable() -> str:
+    """Return path to nise CLI (venv bin from run-pytest.sh, or PATH)."""
+    venv_nise = os.path.join(
+        os.path.dirname(__file__), "..", "..", ".venv", "bin", "nise"
+    )
+    if os.path.isfile(venv_nise) and os.access(venv_nise, os.X_OK):
+        return venv_nise
+    resolved = shutil.which("nise")
+    if resolved:
+        return resolved
+    raise RuntimeError(
+        "nise CLI not found. Ensure run-pytest.sh installed koku-nise "
+        "(local checkout at ../nise or NISE_PATH) and venv bin is on PATH."
+    )
+
+
 def run_nise_for_cluster(cluster_name: str, cluster_id: str, output_dir: str,
                          start_date: datetime, end_date: datetime) -> Dict:
     """Run NISE to generate OCP data for a single cluster."""
@@ -157,7 +173,7 @@ def run_nise_for_cluster(cluster_name: str, cluster_id: str, output_dir: str,
     os.makedirs(nise_output, exist_ok=True)
 
     cmd = [
-        "nise", "report", "ocp",
+        _resolve_nise_executable(), "report", "ocp",
         "--static-report-file", yaml_path,
         "--ocp-cluster-id", cluster_id,
         "-w",
