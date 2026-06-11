@@ -1059,7 +1059,7 @@ class TestContainerDetailE2E:
         body = resp.json()
         assert "data" in body
         codes = {entry["code"] for entry in body["data"]}
-        assert codes == {1, 2, 3, 5, 6, 7, 8, 9, 21, 22, 25}
+        assert codes == {1, 2, 3, 5, 6, 7, 8, 9, 21, 22, 25, 77}
 
     def test_container_csv_export(
         self,
