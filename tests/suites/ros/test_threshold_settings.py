@@ -81,6 +81,24 @@ _CONTAINER_ENV_LOCKS = {
     "ROS_CONTAINER_IDLE_MEM_THRESHOLD_KIB": "idle_mem_threshold_kib",
     "ROS_CONTAINER_MEM_TREND_SLOPE_THRESHOLD": "mem_trend_slope_threshold",
     "ROS_CONTAINER_LOW_CONFIDENCE_THRESHOLD": "low_confidence_threshold",
+    "ROS_CONTAINER_SPARSE_DATA_THRESHOLD": "sparse_data_threshold",
+}
+
+# Env var name → JSON field name (namespace thresholds).
+_NAMESPACE_ENV_LOCKS = {
+    "ROS_NAMESPACE_CPU_COST_PERCENTILE": "cpu_cost_percentile",
+    "ROS_NAMESPACE_CPU_PERF_PERCENTILE": "cpu_perf_percentile",
+    "ROS_NAMESPACE_MEM_COST_PERCENTILE": "mem_cost_percentile",
+    "ROS_NAMESPACE_MEM_PERF_PERCENTILE": "mem_perf_percentile",
+    "ROS_NAMESPACE_MIN_MARGIN": "min_margin",
+    "ROS_NAMESPACE_MAX_MARGIN": "max_margin",
+    "ROS_NAMESPACE_LIMIT_MULTIPLIER": "limit_multiplier",
+    "ROS_NAMESPACE_CPU_FLOOR_MC": "cpu_floor_mc",
+    "ROS_NAMESPACE_IDLE_CPU_THRESHOLD_MC": "idle_cpu_threshold_mc",
+    "ROS_NAMESPACE_IDLE_MEM_THRESHOLD_KIB": "idle_mem_threshold_kib",
+    "ROS_NAMESPACE_MEM_TREND_SLOPE_THRESHOLD": "mem_trend_slope_threshold",
+    "ROS_NAMESPACE_LOW_CONFIDENCE_THRESHOLD": "low_confidence_threshold",
+    "ROS_NAMESPACE_SPARSE_DATA_THRESHOLD": "sparse_data_threshold",
 }
 
 

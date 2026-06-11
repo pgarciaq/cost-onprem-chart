@@ -47,7 +47,7 @@ def _savings_summary_url(ros_api_url: str) -> str:
     )
 
 
-PVC_NOTIFICATION_CODES = frozenset({20, 25, 29, 30})
+PVC_NOTIFICATION_CODES = frozenset({1, 20, 25, 29, 30, 77})
 
 PVC_SETTINGS_THRESHOLD_FIELDS = frozenset(
     {
