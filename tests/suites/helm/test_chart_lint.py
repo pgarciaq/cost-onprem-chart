@@ -113,6 +113,24 @@ class TestChartTemplate:
         assert "livenessProbe:" in ros_api_section
         assert "path: /status" in ros_api_section
 
+    def test_ros_deployments_set_gomemlimit(self, chart_path: str):
+        """ROS Go workloads should set GOMEMLIMIT from ros.goMemLimit values."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        for component in ("ros-api", "ros-processor", "ros-housekeeper", "ros-rec-poller"):
+            blocks = output.split(f"name: {component}")
+            assert len(blocks) > 1, f"{component} container not found"
+            section = blocks[1].split("---")[0]
+            assert "name: GOMEMLIMIT" in section, f"GOMEMLIMIT missing for {component}"
+            assert 'value: "922MiB"' in section, f"unexpected GOMEMLIMIT for {component}"
+
+        cleaner_blocks = output.split("name: ros-partition-cleaner")
+        assert len(cleaner_blocks) > 1, "ros-partition-cleaner container not found"
+        cleaner_section = cleaner_blocks[1].split("---")[0]
+        assert "name: GOMEMLIMIT" in cleaner_section
+        assert 'value: "461MiB"' in cleaner_section
+
 
 @pytest.mark.helm
 @pytest.mark.component

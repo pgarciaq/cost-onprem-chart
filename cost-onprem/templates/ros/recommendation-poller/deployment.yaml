@@ -50,6 +50,7 @@ spec:
               mountPath: /cdapp
               readOnly: true
           env:
+{{- include "cost-onprem.ros.goMemLimitEnv" (dict "root" . "component" "recommendationPoller") | nindent 12 }}
             - name: CLOWDER_ENABLED
               value: "false"
             - name: KRUIZE_HOST

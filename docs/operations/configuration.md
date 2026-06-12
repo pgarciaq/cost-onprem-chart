@@ -655,6 +655,18 @@ The bundled PostgreSQL image uses the upstream default `max_connections=100`. If
 
 > **Removed:** Legacy `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` env vars were never read by ros-ocp-backend and have been removed from chart templates.
 
+#### ROS Go runtime memory limit (`GOMEMLIMIT`)
+
+ros-ocp-backend is a Go binary. Go 1.19+ reads `GOMEMLIMIT` to set a soft heap ceiling so the garbage collector runs more aggressively before the cgroup OOM killer terminates the pod.
+
+| `values.yaml` key | Env var | Default | Description |
+|-------------------|---------|---------|-------------|
+| `ros.goMemLimit.application` | `GOMEMLIMIT` | `922MiB` | api, processor, housekeeper, recommendation-poller (~90% of `resources.application.limits.memory` = 1 Gi) |
+| `ros.goMemLimit.partitionCleaner` | `GOMEMLIMIT` | `461MiB` | partition-cleaner CronJob (~90% of `ros.housekeeper.partitionCleaner.resources.limits.memory` = 512 Mi) |
+| `ros.goMemLimit.api` / `processor` / `housekeeper` / `recommendationPoller` | `GOMEMLIMIT` | (empty) | Optional per-component overrides; empty uses `application` or `partitionCleaner` |
+
+Use Go's `MiB` format (e.g. `922MiB`), not Kubernetes `Mi`/`Gi` syntax. When you change a component's memory limit, update the matching `ros.goMemLimit` value to ~90% of the new limit. Leave a key empty to omit `GOMEMLIMIT` for that component (e.g. when no memory limit is set).
+
 #### ROS processor retention (Helm values)
 
 The chart injects these into the **ros-processor** deployment only (24-hour background sweep in ros-ocp-backend):
