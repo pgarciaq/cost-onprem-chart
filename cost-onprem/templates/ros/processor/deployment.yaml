@@ -60,6 +60,7 @@ spec:
               readOnly: true
             {{- include "cost-onprem.kafka.tlsVolumeMount" . | nindent 12 }}
           env:
+{{- include "cost-onprem.ros.goMemLimitEnv" (dict "root" . "component" "processor") | nindent 12 }}
             - name: CLOWDER_ENABLED
               value: "false"
             - name: DB_HOST

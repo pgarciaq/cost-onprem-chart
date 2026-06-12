@@ -1,0 +1,26 @@
+{{/*
+  Go runtime soft memory limit (GOMEMLIMIT) for ros-ocp-backend processes.
+  Set ros.goMemLimit in values.yaml to ~90% of each component's container memory
+  limit using Go's MiB format (e.g. "922MiB" for a 1Gi Kubernetes limit).
+  Omit or leave empty to skip injecting GOMEMLIMIT.
+*/}}
+{{- define "cost-onprem.ros.goMemLimitEnv" -}}
+{{- $root := .root -}}
+{{- $component := .component -}}
+{{- $limits := $root.Values.ros.goMemLimit | default dict -}}
+{{- $value := "" -}}
+{{- if $limits }}
+{{- $override := index $limits $component | default "" -}}
+{{- if $override }}
+{{- $value = $override -}}
+{{- else if eq $component "partitionCleaner" }}
+{{- $value = $limits.partitionCleaner | default "" -}}
+{{- else }}
+{{- $value = $limits.application | default "" -}}
+{{- end }}
+{{- end }}
+{{- if $value }}
+- name: GOMEMLIMIT
+  value: {{ $value | quote }}
+{{- end }}
+{{- end }}

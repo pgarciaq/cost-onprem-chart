@@ -51,6 +51,7 @@ spec:
               containerPort: {{ .Values.ros.api.metricsPort }}
               protocol: TCP
           env:
+{{- include "cost-onprem.ros.goMemLimitEnv" (dict "root" . "component" "api") | nindent 12 }}
             - name: PATH_PREFIX
               value: {{ .Values.ros.api.pathPrefix | quote }}
             - name: CLOWDER_ENABLED

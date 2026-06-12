@@ -64,6 +64,22 @@ ros:
   # RBAC, Kruize, and admin sessions. Default 5 × ~5 pods ≈ 25 ROS connections.
   dbMaxConns: 5
 
+  # Go runtime soft memory limit (GOMEMLIMIT). Go 1.19+ uses this to tune GC before
+  # the container hits its hard memory limit and gets OOM-killed. Set each value to
+  # ~90% of that component's resources.limits.memory using Go's MiB format
+  # (e.g. "922MiB" for 1Gi, "461MiB" for 512Mi — not Kubernetes "Mi" syntax).
+  # Leave a key empty to omit GOMEMLIMIT for that component (e.g. when no limit is set).
+  goMemLimit:
+    # api, processor, housekeeper, recommendation-poller (resources.application limit: 1Gi)
+    application: "922MiB"
+    # partition-cleaner CronJob (ros.housekeeper.partitionCleaner.resources limit: 512Mi)
+    partitionCleaner: "461MiB"
+    # Optional per-component overrides (empty string uses application or partitionCleaner above)
+    api: ""
+    processor: ""
+    housekeeper: ""
+    recommendationPoller: ""
+
   # API Component - REST API for ROS
   api:
     port: 8000

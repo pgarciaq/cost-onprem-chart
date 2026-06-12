@@ -43,6 +43,7 @@ spec:
               # See: templates/ros/jobs/migration.yaml
               ./rosocp start housekeeper --sources
           env:
+{{- include "cost-onprem.ros.goMemLimitEnv" (dict "root" . "component" "housekeeper") | nindent 12 }}
             - name: CLOWDER_ENABLED
               value: "false"
             # Point to Koku API for sources endpoints (application_types, etc.)
