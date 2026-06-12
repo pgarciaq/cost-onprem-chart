@@ -245,7 +245,14 @@ Key requirements:
 # Run by test type
 ./scripts/run-pytest.sh -m component        # Single-component tests
 ./scripts/run-pytest.sh -m integration      # Multi-component tests
+
+# Skip automatic data seeding (cluster already has data)
+E2E_SKIP_SEED=true ./scripts/run-pytest.sh
 ```
+
+Pytest automatically seeds ROS test data at session start when row counts are
+below threshold. Set `E2E_SKIP_SEED=true` to bypass. See
+[Test Data Setup — Automatic Data Seeding](docs/development/test-data-setup.md#automatic-data-seeding).
 
 **See [Test Suite Documentation](tests/README.md) for detailed usage**
 

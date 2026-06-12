@@ -45,6 +45,13 @@
 #   KEYCLOAK_NAMESPACE     Keycloak namespace (default: keycloak)
 #   PYTHON                 Python interpreter (default: python3)
 #   NISE_PATH              Local koku-nise repo (editable install; includes VM generators)
+#   E2E_SKIP_SEED          Set to true to bypass automatic session data seeding
+#
+# Automatic Data Seeding:
+#   Before tests run, a session-scoped fixture (tests/fixtures/data_seeding.py)
+#   checks ROS DB row counts and generates/ingests NISE data for any category
+#   below threshold. Fast path (~2 s) when data exists; cold cluster 5-15 min.
+#   Use E2E_SKIP_SEED=true to skip (e.g. fast iteration on clusters with data).
 #
 # Examples:
 #   ./run-pytest.sh                         # Run all tests (including UI)

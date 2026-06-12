@@ -15,6 +15,9 @@ The test suite is organized into **focused suites** that avoid redundancy:
 ```
 tests/
 ├── conftest.py              # Root fixtures (cluster config, JWT, DB, etc.)
+├── fixtures/
+│   ├── data_seeding.py      # Session autouse: automatic NISE data seeding
+│   └── nise_templates/      # YAML templates for seed categories
 ├── utils.py                 # Shared utility functions
 ├── e2e_helpers.py           # Centralized E2E helpers (NISE, source registration, upload)
 ├── cleanup.py               # E2E cleanup utilities
@@ -108,6 +111,17 @@ The `e2e` suite validates the **complete production data flow**:
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+## Automatic Data Seeding
+
+Before any test runs, the session-scoped `e2e_session_data_seed` fixture
+(`fixtures/data_seeding.py`, autouse) checks ROS database row counts and
+generates/ingests NISE data for categories below threshold. This is idempotent
+and requires no manual setup on a fresh cluster.
+
+Set `E2E_SKIP_SEED=true` to bypass when the cluster already has sufficient
+data. See [Automatic Data Seeding](../docs/development/test-data-setup.md#automatic-data-seeding)
+for thresholds, templates, and skip conditions.
 
 ## Quick Start
 

@@ -1,13 +1,94 @@
 # Test Data Setup Guide
 
-This guide covers how to set up test data for Cost On-Prem validation using the `setup-test-data.sh` script.
+This guide covers test data for Cost On-Prem validation: **automatic seeding**
+that runs with every pytest session, and **manual scenario setup** via
+`setup-test-data.sh`.
 
 For detailed information on specific test types, see:
 - [E2E Scenarios](../../tests/suites/e2e/README.md) - YAML-driven scenario definitions
 - [Performance Profiles](../../tests/suites/performance/README.md) - Production-based sizing profiles
 - [NISE Templates](../../tests/data/nise_templates/README.md) - Available data templates
 
-## Quick Start
+## Automatic Data Seeding
+
+When you run `./scripts/run-pytest.sh`, pytest loads a **session-scoped autouse
+fixture** (`tests/fixtures/data_seeding.py`) that runs once before any tests
+execute. You do not need to invoke it manually — it is part of the normal test
+workflow.
+
+### What it does
+
+1. Connects to the ROS PostgreSQL database and counts rows in key digest tables.
+2. For each category below its minimum threshold, generates NISE OCP reports
+   from YAML templates in `tests/fixtures/nise_templates/`.
+3. Registers a deterministic session seed source, uploads the tarball via
+   ingress, and polls until the ROS processor has ingested the data.
+
+The fixture is **idempotent**: categories that already meet their threshold are
+skipped, so re-running tests on a populated cluster adds no extra work.
+
+### Thresholds
+
+| Category | ROS table | Minimum rows |
+|----------|-----------|--------------|
+| container | `daily_container_digests` (`schedule_type = all_hours`) | 100 |
+| namespace | `daily_namespace_digests` (`schedule_type = all_hours`) | 50 |
+| PVC | `daily_pvc_digests` | 20 |
+| GPU | `gpu_container_digests` | 20 |
+| cluster_quota | `cluster_quota_recommendation_sets` (`recommendation_type != none`) | 2 |
+| business_hours | `daily_container_digests` (`schedule_type = business_hours`) | 30 |
+
+Business-hours digests are normally created by BH tests via masu reship; the
+fixture only ensures base container data exists when the BH threshold is unmet.
+
+### NISE templates
+
+Four YAML files in `tests/fixtures/nise_templates/` cover the seed categories:
+
+| Template | Covers |
+|----------|--------|
+| `seed_container.yml` | container, namespace, business_hours |
+| `seed_pvc.yml` | PVC |
+| `seed_gpu.yml` | GPU |
+| `seed_cluster_quota.yml` | cluster_quota |
+
+NISE is invoked with `--write-monthly` and `--ros-ocp-info`. Date ranges are
+overridden to the last 30 days at generation time.
+
+### Timing
+
+| Scenario | Duration |
+|----------|----------|
+| All thresholds met (fast path) | ~2 seconds |
+| Fresh cluster, multiple categories missing | 5–15 minutes |
+
+Per-category processing timeout is 5 minutes; total session budget is 15 minutes.
+
+### When seeding is skipped
+
+Seeding is bypassed entirely when:
+
+- **`E2E_SKIP_SEED=true`** — use for fast iteration on clusters that already
+  have sufficient data.
+- **Thresholds already met** — no uploads are attempted.
+- **Cluster unavailable** — ingress or database pod not found.
+- **Keycloak/ingress unavailable** — e.g. helm-only test runs without cluster
+  fixtures.
+- **NISE not installed** — `run-pytest.sh` normally installs koku-nise in the
+  virtualenv; seeding skips if the `nise` CLI is missing.
+
+```bash
+# Bypass automatic seeding
+E2E_SKIP_SEED=true NAMESPACE=cost-onprem ./scripts/run-pytest.sh --ros
+```
+
+### Relationship to manual setup
+
+Automatic seeding ensures **minimum baseline data** for the pytest suite. Use
+`setup-test-data.sh` (below) when you need specific scenarios, larger datasets,
+or performance profiles — not for ordinary E2E runs.
+
+## Quick Start (manual setup)
 
 ```bash
 # List available scenarios
