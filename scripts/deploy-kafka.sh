@@ -26,6 +26,9 @@
 
 set -e  # Exit on any error
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VALUES_FILE="${VALUES_FILE:-$SCRIPT_DIR/../cost-onprem/values.yaml}"
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -548,21 +551,53 @@ EOF
     fi
 }
 
+# Read a topic partition count from env, Helm values (yq), or fallback default.
+read_topic_partitions() {
+    local yq_path="$1"
+    local env_var_name="$2"
+    local fallback="$3"
+    local env_value="${!env_var_name:-}"
+
+    if [ -n "$env_value" ]; then
+        echo "$env_value"
+        return 0
+    fi
+
+    if [ -f "$VALUES_FILE" ] && command -v yq >/dev/null 2>&1; then
+        local value
+        value=$(yq "$yq_path" "$VALUES_FILE" 2>/dev/null || true)
+        if [ -n "$value" ] && [ "$value" != "null" ]; then
+            echo "$value"
+            return 0
+        fi
+    fi
+
+    echo "$fallback"
+}
+
 # Function to create Kafka topics
 create_kafka_topics() {
     echo_header "CREATING KAFKA TOPICS"
 
     local replication_factor="${KAFKA_BROKER_REPLICAS:-3}"
+    local default_partitions
+    local hccm_ros_events_partitions
+    local hccm_ros_events_dlq_partitions
+
+    default_partitions=$(read_topic_partitions '.kafka.topics.defaultPartitions' 'KAFKA_DEFAULT_TOPIC_PARTITIONS' '3')
+    hccm_ros_events_partitions=$(read_topic_partitions '.kafka.topics.hccmRosEvents.partitions' 'KAFKA_HCCM_ROS_EVENTS_PARTITIONS' '12')
+    hccm_ros_events_dlq_partitions=$(read_topic_partitions '.kafka.topics.hccmRosEventsDlq.partitions' 'KAFKA_HCCM_ROS_EVENTS_DLQ_PARTITIONS' "$hccm_ros_events_partitions")
 
     echo_info "Creating Kafka topics with replication factor: $replication_factor"
+    echo_info "Topic partitions: default=$default_partitions, hccm.ros.events=$hccm_ros_events_partitions, hccm.ros.events.dlq=$hccm_ros_events_dlq_partitions"
 
     local required_topics=(
-        "hccm.ros.events:3:$replication_factor"
-        "hccm.ros.events.dlq:3:$replication_factor"
-        "platform.sources.event-stream:3:$replication_factor"
-        "rosocp.kruize.recommendations:3:$replication_factor"
-        "platform.upload.announce:3:$replication_factor"
-        "platform.payload-status:3:$replication_factor"
+        "hccm.ros.events:${hccm_ros_events_partitions}:$replication_factor"
+        "hccm.ros.events.dlq:${hccm_ros_events_dlq_partitions}:$replication_factor"
+        "platform.sources.event-stream:${default_partitions}:$replication_factor"
+        "rosocp.kruize.recommendations:${default_partitions}:$replication_factor"
+        "platform.upload.announce:${default_partitions}:$replication_factor"
+        "platform.payload-status:${default_partitions}:$replication_factor"
     )
 
     for topic_config in "${required_topics[@]}"; do
@@ -921,8 +956,32 @@ main() {
     fi
 }
 
+# Parse all flags and collect the command in a single pass
+COMMAND=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -f|--values)
+            VALUES_FILE="$2"
+            if [ -z "$VALUES_FILE" ] || [ ! -f "$VALUES_FILE" ]; then
+                log_error "Values file not found: ${VALUES_FILE:-<empty>}"
+                exit 1
+            fi
+            shift 2
+            ;;
+        -*)
+            log_error "Unknown flag: $1"
+            log_info "Use '$0 help' for usage information"
+            exit 1
+            ;;
+        *)
+            COMMAND="$1"
+            shift
+            ;;
+    esac
+done
+
 # Handle script arguments
-case "${1:-}" in
+case "${COMMAND}" in
     "cleanup"|"clean")
         detect_platform
         cleanup_deployment
@@ -934,7 +993,7 @@ case "${1:-}" in
         exit $?
         ;;
     "help"|"-h"|"--help")
-        echo "Usage: $0 [command]"
+        echo "Usage: $0 [-f <values.yaml>] [command]"
         echo ""
         echo "Commands:"
         echo "  (no command)     Deploy AMQ Streams operator and Kafka cluster (KRaft mode)"
@@ -942,22 +1001,32 @@ case "${1:-}" in
         echo "  cleanup          Remove all AMQ Streams and Kafka resources"
         echo "  help             Show this help message"
         echo ""
+        echo "Options:"
+        echo "  -f, --values <file>   Helm values file for kafka.topics partition counts"
+        echo "                        (default: cost-onprem/values.yaml)"
+        echo ""
         echo "Environment Variables:"
-        echo "  KAFKA_BOOTSTRAP_SERVERS    Bootstrap servers for existing Kafka on cluster (skips deployment)"
-        echo "  OPERATOR_NAMESPACE         Namespace for AMQ Streams operator (default: openshift-operators)"
-        echo "  KAFKA_NAMESPACE            Namespace for Kafka instances (default: kafka)"
-        echo "  KAFKA_CLUSTER_NAME         Kafka cluster name (default: cost-onprem-kafka)"
-        echo "  KAFKA_VERSION            Kafka version (default: 4.1.0)"
-        echo "  AMQ_STREAMS_CHANNEL      OLM subscription channel (default: amq-streams-3.1.x)"
-        echo "  STORAGE_CLASS            Storage class name (auto-detected if empty)"
-        echo "  KAFKA_BROKER_REPLICAS    Number of broker nodes (default: 3)"
-        echo "  KAFKA_BROKER_STORAGE     Broker persistent volume size (default: 100Gi)"
-        echo "  KAFKA_CONTROLLER_REPLICAS Number of controller nodes (default: 3)"
-        echo "  KAFKA_CONTROLLER_STORAGE Controller persistent volume size (default: 20Gi)"
+        echo "  KAFKA_BOOTSTRAP_SERVERS           Bootstrap servers for existing Kafka on cluster (skips deployment)"
+        echo "  OPERATOR_NAMESPACE                Namespace for AMQ Streams operator (default: openshift-operators)"
+        echo "  KAFKA_NAMESPACE                   Namespace for Kafka instances (default: kafka)"
+        echo "  KAFKA_CLUSTER_NAME                Kafka cluster name (default: cost-onprem-kafka)"
+        echo "  KAFKA_VERSION                     Kafka version (default: 4.1.0)"
+        echo "  AMQ_STREAMS_CHANNEL               OLM subscription channel (default: amq-streams-3.1.x)"
+        echo "  STORAGE_CLASS                     Storage class name (auto-detected if empty)"
+        echo "  KAFKA_BROKER_REPLICAS             Number of broker nodes (default: 3)"
+        echo "  KAFKA_BROKER_STORAGE              Broker persistent volume size (default: 100Gi)"
+        echo "  KAFKA_CONTROLLER_REPLICAS         Number of controller nodes (default: 3)"
+        echo "  KAFKA_CONTROLLER_STORAGE          Controller persistent volume size (default: 20Gi)"
+        echo "  KAFKA_DEFAULT_TOPIC_PARTITIONS    Default partitions for non-ROS topics (default: 3)"
+        echo "  KAFKA_HCCM_ROS_EVENTS_PARTITIONS  Partitions for hccm.ros.events (default: 12)"
+        echo "  KAFKA_HCCM_ROS_EVENTS_DLQ_PARTITIONS Partitions for hccm.ros.events.dlq (default: same as ROS events)"
         echo ""
         echo "Examples:"
         echo "  # Deploy with default settings (3 brokers, 3 controllers)"
         echo "  $0"
+        echo ""
+        echo "  # Deploy with topic partitions from a custom values file"
+        echo "  $0 -f cost-onprem/values.yaml"
         echo ""
         echo "  # Deploy with custom storage class"
         echo "  STORAGE_CLASS=gp2 $0"
@@ -979,8 +1048,8 @@ case "${1:-}" in
         main
         ;;
     *)
-        echo_error "Unknown command: $1"
-        echo_info "Use '$0 help' for usage information"
+        log_error "Unknown command: $COMMAND"
+        log_info "Use '$0 help' for usage information"
         exit 1
         ;;
 esac
