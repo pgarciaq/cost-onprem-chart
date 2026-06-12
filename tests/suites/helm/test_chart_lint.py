@@ -102,6 +102,20 @@ class TestChartTemplate:
         )
         assert success, f"Helm template with JWT auth failed:\n{output}"
 
+    def test_ros_api_readiness_probe_uses_readyz(self, chart_path: str):
+        """ROS API readiness must check DB via /readyz; liveness stays on /status."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        ros_api_blocks = output.split("name: ros-api")
+        assert len(ros_api_blocks) > 1, "ros-api container not found in rendered templates"
+        ros_api_section = ros_api_blocks[1].split("---")[0]
+
+        assert "readinessProbe:" in ros_api_section
+        assert "path: /readyz" in ros_api_section
+        assert "livenessProbe:" in ros_api_section
+        assert "path: /status" in ros_api_section
+
 
 @pytest.mark.helm
 @pytest.mark.component
