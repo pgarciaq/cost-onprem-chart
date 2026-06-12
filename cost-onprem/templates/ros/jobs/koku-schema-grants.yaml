@@ -1,0 +1,118 @@
+{{- if .Values.database.deploy }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cost-onprem.fullname" . }}-ros-koku-grants
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cost-onprem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ros-koku-grants
+  annotations:
+    # Run after Koku and ROS migrations so tenant schemas exist
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "cost-onprem.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ros-koku-grants
+    spec:
+      restartPolicy: Never
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "cost-onprem.securityContext.pod" . | nindent 8 }}
+      containers:
+        - name: grant-koku-schemas
+          image: "{{ .Values.database.server.image.repository }}:{{ .Values.database.server.image.tag }}"
+          imagePullPolicy: {{ .Values.global.pullPolicy }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              DB_HOST="{{ include "cost-onprem.database.host" . }}"
+              DB_PORT="{{ .Values.database.server.port }}"
+              KOKU_DB="{{ include "cost-onprem.database.koku.name" . }}"
+              ROS_USER="${ROS_USER}"
+              KOKU_USER="${KOKU_USER}"
+              MAX_WAIT=600
+              ELAPSED=0
+
+              echo "=== ROS Koku tenant schema grants ==="
+              echo "Waiting for database at ${DB_HOST}:${DB_PORT}..."
+              while ! timeout 5 bash -c "cat < /dev/null > /dev/tcp/${DB_HOST}/${DB_PORT}" 2>/dev/null; do
+                if [ "${ELAPSED}" -ge "${MAX_WAIT}" ]; then
+                  echo "ERROR: Database not ready after ${MAX_WAIT} seconds"
+                  exit 1
+                fi
+                echo "Database not ready (${ELAPSED}s elapsed), waiting..."
+                sleep 5
+                ELAPSED=$((ELAPSED + 5))
+              done
+              echo "✓ Database is ready (waited ${ELAPSED}s)"
+
+              export PGPASSWORD="${POSTGRES_PASSWORD}"
+              psql -v ON_ERROR_STOP=1 \
+                -h "${DB_HOST}" -p "${DB_PORT}" \
+                -U "${POSTGRES_USER}" -d postgres \
+                -c "GRANT CONNECT ON DATABASE ${KOKU_DB} TO ${ROS_USER};"
+
+              psql -v ON_ERROR_STOP=1 \
+                -h "${DB_HOST}" -p "${DB_PORT}" \
+                -U "${POSTGRES_USER}" -d "${KOKU_DB}" <<SQL
+              DO \$\$
+              DECLARE
+                schema_name text;
+              BEGIN
+                FOR schema_name IN
+                  SELECT nspname FROM pg_namespace WHERE nspname LIKE 'org%'
+                LOOP
+                  EXECUTE format('GRANT USAGE ON SCHEMA %I TO ${ROS_USER}', schema_name);
+                  EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO ${ROS_USER}', schema_name);
+                END LOOP;
+              END
+              \$\$;
+
+              ALTER DEFAULT PRIVILEGES FOR ROLE ${KOKU_USER} GRANT SELECT ON TABLES TO ${ROS_USER};
+              SQL
+
+              echo "✓ ros_user grants applied on ${KOKU_DB} tenant schemas"
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.secretName" . }}
+                  key: postgres-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.secretName" . }}
+                  key: postgres-password
+            - name: ROS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.secretName" . }}
+                  key: ros-user
+            - name: KOKU_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.secretName" . }}
+                  key: koku-user
+          securityContext:
+            {{- include "cost-onprem.securityContext.container" . | nindent 12 }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+{{- end }}
