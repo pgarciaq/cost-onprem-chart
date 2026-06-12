@@ -72,6 +72,13 @@ ros:
 
     serviceName: ros-api
     logLevel: INFO
+
+    # Kubernetes probes: liveness uses static /status; readiness pings PostgreSQL via /readyz.
+    livenessProbe:
+      path: /status
+    readinessProbe:
+      path: /readyz
+
     # Business-hours settings API and dual-stream recommendations (ros-api kill-switch).
     businessHoursEnabled: true
     # When false, skip Masu effective-rates fetches for GPU savings on API responses.

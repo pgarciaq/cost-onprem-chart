@@ -104,7 +104,7 @@ spec:
 {{- include "cost-onprem.ros.thresholdEnv" . | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /status
+              path: {{ .Values.ros.api.livenessProbe.path | default "/status" }}
               port: {{ .Values.ros.api.port }}
             initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.periodSeconds }}
@@ -112,7 +112,7 @@ spec:
             failureThreshold: {{ .Values.probes.failureThreshold }}
           readinessProbe:
             httpGet:
-              path: /status
+              path: {{ .Values.ros.api.readinessProbe.path | default "/readyz" }}
               port: {{ .Values.ros.api.port }}
             initialDelaySeconds: 15
             periodSeconds: {{ .Values.probes.periodSeconds }}
