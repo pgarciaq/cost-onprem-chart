@@ -1,0 +1,10 @@
+{{/*
+  ROS /healthz probe thresholds — goroutine count and GC pause limits.
+  Included under containers[].env; use nindent to match sibling env entries.
+*/}}
+{{- define "cost-onprem.ros.healthzEnv" }}
+- name: ROS_HEALTHZ_MAX_GOROUTINES
+  value: {{ .Values.ros.healthz.maxGoroutines | default 5000 | quote }}
+- name: ROS_HEALTHZ_MAX_GC_PAUSE_MS
+  value: {{ .Values.ros.healthz.maxGCPauseMs | default 100 | quote }}
+{{- end }}

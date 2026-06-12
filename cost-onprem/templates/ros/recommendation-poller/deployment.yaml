@@ -95,10 +95,11 @@ spec:
             - name: PROMETHEUS_PORT
               value: {{ .Values.ros.recommendationPoller.metricsPort | quote }}
 {{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
+{{- include "cost-onprem.ros.healthzEnv" . | nindent 12 }}
           # Re-enable probes now that PROMETHEUS_PORT environment variable is correctly set
           livenessProbe:
             httpGet:
-              path: /metrics
+              path: /healthz
               port: {{ .Values.ros.recommendationPoller.metricsPort }}
             initialDelaySeconds: 120
             periodSeconds: 30
@@ -106,7 +107,7 @@ spec:
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /readyz
               port: {{ .Values.ros.recommendationPoller.metricsPort }}
             initialDelaySeconds: 90
             periodSeconds: 20

@@ -118,6 +118,7 @@ spec:
 {{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.featureEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.thresholdEnv" . | nindent 12 }}
+{{- include "cost-onprem.ros.healthzEnv" . | nindent 12 }}
             # SSL_CERT_FILE is used by Go's crypto/x509 to load CA certificates
             # Points to combined bundle with system CAs + OpenShift cluster CA + Service CA
             - name: SSL_CERT_FILE
@@ -125,7 +126,7 @@ spec:
           # Re-enable probes now that PROMETHEUS_PORT environment variable is correctly set
           livenessProbe:
             httpGet:
-              path: /metrics
+              path: /healthz
               port: {{ .Values.ros.processor.metricsPort }}
             initialDelaySeconds: 120
             periodSeconds: 30
@@ -133,7 +134,7 @@ spec:
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /readyz
               port: {{ .Values.ros.processor.metricsPort }}
             initialDelaySeconds: 90
             periodSeconds: 20
