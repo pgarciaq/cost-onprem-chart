@@ -89,9 +89,9 @@ ros:
     serviceName: ros-api
     logLevel: INFO
 
-    # Kubernetes probes: liveness uses static /status; readiness pings PostgreSQL via /readyz.
+    # Kubernetes probes: liveness uses /healthz (runtime degradation); readiness pings PostgreSQL via /readyz.
     livenessProbe:
-      path: /status
+      path: /healthz
     readinessProbe:
       path: /readyz
 
@@ -145,6 +145,11 @@ ros:
       gpuDramActiveBP: 500
       excludeNamespaces: "kube-system,openshift-*"
       excludeWorkloadTypes: "DaemonSet"
+
+  # Runtime health probe thresholds for GET /healthz (goroutine count, GC pause).
+  healthz:
+    maxGoroutines: 5000
+    maxGCPauseMs: 100
 
   # Processor Component - Processes uploaded data
   processor:

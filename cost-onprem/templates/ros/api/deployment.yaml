@@ -103,9 +103,10 @@ spec:
               value: {{ .Values.ros.api.reshipForwardOnlyFallback | quote }}
 {{- include "cost-onprem.ros.featureEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.thresholdEnv" . | nindent 12 }}
+{{- include "cost-onprem.ros.healthzEnv" . | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: {{ .Values.ros.api.livenessProbe.path | default "/status" }}
+              path: {{ .Values.ros.api.livenessProbe.path | default "/healthz" }}
               port: {{ .Values.ros.api.port }}
             initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.periodSeconds }}
