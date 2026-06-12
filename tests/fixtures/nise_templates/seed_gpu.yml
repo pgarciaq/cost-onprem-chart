@@ -1,0 +1,129 @@
+---
+# Session seed: GPU time-slicing (T4) + MIG (H100) container digests.
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: seed-gpu-ts-node
+          node_labels: nvidia_com_gpu_present:True|label_environment:production
+          cpu_cores: 32
+          memory_gig: 256
+          resource_id: seed-gpu-ts-001
+          namespaces:
+            seed-gpu-ts:
+              namespace_labels: label_team:ml|label_environment:production
+              pods:
+                - pod:
+                  pod_name: seed-ts-worker-a
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.5
+                  mem_usage_gig:
+                    full_period: 8
+                  labels: label_app:pytorch|label_workload:training
+                  gpus:
+                    - gpu:
+                      gpu_model: "Tesla T4"
+                      gpu_memory_capacity_mib: 15360
+                      sm_active_avg: 0.12
+                      tensor_pipe_active_avg: 0.05
+                      dram_active_avg: 0.08
+                      fb_usage_avg: 1200.0
+                - pod:
+                  pod_name: seed-ts-worker-b
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.0
+                  mem_usage_gig:
+                    full_period: 6
+                  labels: label_app:tensorflow|label_workload:inference
+                  gpus:
+                    - gpu:
+                      gpu_model: "Tesla T4"
+                      gpu_memory_capacity_mib: 15360
+                      sm_active_avg: 0.10
+                      dram_active_avg: 0.06
+                      fb_usage_avg: 1000.0
+                - pod:
+                  pod_name: seed-ts-worker-c
+                  cpu_request: 4
+                  mem_request_gig: 16
+                  cpu_limit: 8
+                  mem_limit_gig: 32
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.8
+                  mem_usage_gig:
+                    full_period: 5
+                  labels: label_app:pytorch|label_workload:training
+                  gpus:
+                    - gpu:
+                      gpu_model: "Tesla T4"
+                      gpu_memory_capacity_mib: 15360
+                      sm_active_avg: 0.15
+                      dram_active_avg: 0.07
+                      fb_usage_avg: 1100.0
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: seed-gpu-mig-node
+          node_labels: nvidia_com_gpu_present:True|label_environment:production
+          cpu_cores: 64
+          memory_gig: 512
+          resource_id: seed-gpu-mig-001
+          namespaces:
+            seed-gpu-mig:
+              namespace_labels: label_team:llm|label_environment:production
+              pods:
+                - pod:
+                  pod_name: seed-mig-inference-a
+                  cpu_request: 8
+                  mem_request_gig: 32
+                  cpu_limit: 16
+                  mem_limit_gig: 64
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 4.0
+                  mem_usage_gig:
+                    full_period: 24
+                  labels: label_app:llm|label_workload:inference
+                  gpus:
+                    - gpu:
+                      gpu_model: "NVIDIA H100 80GB HBM3"
+                      gpu_memory_capacity_mib: 81559
+                      mig_profile: "1g.10gb"
+                      sm_active_avg: 0.35
+                      dram_active_avg: 0.40
+                      fb_usage_avg: 8000.0
+                - pod:
+                  pod_name: seed-mig-inference-b
+                  cpu_request: 8
+                  mem_request_gig: 32
+                  cpu_limit: 16
+                  mem_limit_gig: 64
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 3.5
+                  mem_usage_gig:
+                    full_period: 20
+                  labels: label_app:llm|label_workload:inference
+                  gpus:
+                    - gpu:
+                      gpu_model: "NVIDIA H100 80GB HBM3"
+                      gpu_memory_capacity_mib: 81559
+                      mig_profile: "3g.40gb"
+                      sm_active_avg: 0.55
+                      dram_active_avg: 0.60
+                      fb_usage_avg: 25000.0

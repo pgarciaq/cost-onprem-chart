@@ -1,0 +1,73 @@
+---
+# Session seed: PVC/storage digests for right-sizing and orphaned PVC tests.
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: seed-pvc-node
+          cpu_cores: 8
+          memory_gig: 16
+          resource_id: 91001001
+          namespaces:
+            seed-pvc-ns:
+              namespace_labels: app:seed-pvc
+              pods:
+                - pod:
+                  pod_name: seed-pvc-app
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.5
+                  mem_usage_gig:
+                    full_period: 1
+                  labels: label_app:seed-pvc
+              volumes:
+                - volume:
+                  volume_name: seed-vol-oversized
+                  storage_class: gp3-csi
+                  volume_request_gig: 100
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: seed-pvc-oversized
+                      pod_name: seed-pvc-app
+                      capacity_gig: 100
+                      volume_claim_usage_gig:
+                        full_period: 5
+                - volume:
+                  volume_name: seed-vol-near-full
+                  storage_class: gp3-csi
+                  volume_request_gig: 10
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: seed-pvc-near-full
+                      pod_name: seed-pvc-app
+                      capacity_gig: 10
+                      volume_claim_usage_gig:
+                        __PVC_NEAR_FULL_GROWTH__
+                - volume:
+                  volume_name: seed-vol-orphaned
+                  storage_class: ocs-storagecluster-ceph-rbd
+                  volume_request_gig: 20
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: seed-pvc-orphaned
+                      pod_name: seed-pvc-app
+                      capacity_gig: 20
+                      volume_claim_usage_gig:
+                        full_period: 0
+                - volume:
+                  volume_name: seed-vol-healthy
+                  storage_class: gp2
+                  volume_request_gig: 50
+                  volume_claims:
+                    - volume_claim:
+                      volume_claim_name: seed-pvc-healthy
+                      pod_name: seed-pvc-app
+                      capacity_gig: 50
+                      volume_claim_usage_gig:
+                        full_period: 30
