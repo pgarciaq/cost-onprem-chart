@@ -40,6 +40,7 @@ from rbac_bootstrap_scripts import (
 # Import shared fixtures from test suites
 # These fixtures are available to all test suites
 pytest_plugins = [
+    "fixtures.data_seeding",
     "suites.cost_management.conftest",
     "suites.sources.conftest",
     "suites.ros.conftest",

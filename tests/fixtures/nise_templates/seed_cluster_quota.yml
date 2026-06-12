@@ -1,0 +1,76 @@
+---
+# Session seed: ClusterResourceQuota CSV + pod usage for quota recommendations.
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      cluster_resource_quotas:
+        - name: seed-crq-team
+          cpu_request_hard: 20
+          cpu_limit_hard: 40
+          memory_request_hard_gig: 50
+          memory_limit_hard_gig: 100
+          cpu_request_used: 18
+          cpu_limit_used: 36
+          memory_request_used_gig: 45
+          memory_limit_used_gig: 90
+          storage_request_hard_gig: 500
+          storage_request_used_gig: 420
+          pods_hard: 200
+          pods_used: 175
+          object_count_hard: 0
+          object_count_used: 0
+          namespaces: seed-crq-ns
+        - name: seed-crq-platform
+          cpu_request_hard: 30
+          cpu_limit_hard: 60
+          memory_request_hard_gig: 64
+          memory_limit_hard_gig: 128
+          cpu_request_used: 27
+          memory_request_used_gig: 58
+          storage_request_hard_gig: 1000
+          storage_request_used_gig: 800
+          pods_hard: 500
+          pods_used: 410
+          object_count_hard: 0
+          object_count_used: 0
+          namespaces: seed-crq-ns,openshift-monitoring
+      nodes:
+        - node:
+          node_name: seed-crq-worker
+          cpu_cores: 32
+          memory_gig: 64
+          resource_id: seed-crq-node-1
+          namespaces:
+            seed-crq-ns:
+              resource_quota:
+                cpu_request_used: 2.0
+                cpu_limit_used: 4.0
+                memory_request_used_gig: 4
+                memory_limit_used_gig: 8
+              pods:
+                - pod:
+                  pod_name: seed-crq-heavy-1
+                  cpu_request: 12
+                  mem_request_gig: 6
+                  cpu_limit: 16
+                  mem_limit_gig: 10
+                  cpu_usage:
+                    full_period: 0.5
+                  mem_usage_gig:
+                    full_period: 1.0
+                  labels: label_app:seed-crq|label_environment:test
+                  workload: deployment
+                  replica_count: 2
+                - pod:
+                  pod_name: seed-crq-heavy-2
+                  cpu_request: 10
+                  mem_request_gig: 5
+                  cpu_limit: 14
+                  mem_limit_gig: 8
+                  cpu_usage:
+                    full_period: 0.4
+                  mem_usage_gig:
+                    full_period: 0.8
+                  labels: label_app:seed-crq|label_environment:test
+                  workload: deployment

@@ -1,0 +1,182 @@
+---
+# Session seed: container + namespace ROS digests (30-day window via last_month/today).
+# Multiple nodes/namespaces/pods to exceed daily_container_digests (100) and
+# daily_namespace_digests (50) thresholds.
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: seed-node-a
+          cpu_cores: 32
+          memory_gig: 64
+          resource_id: 91000001
+          namespaces:
+            seed-prod-a:
+              namespace_labels: label_environment:production|label_team:platform
+              pods:
+                - pod:
+                  pod_name: seed-app-a1
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 2
+                  cpu_limit: 4
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.8
+                  mem_usage_gig:
+                    full_period: 1.2
+                  labels: label_app:seed-a1
+                - pod:
+                  pod_name: seed-app-a2
+                  workload: deployment
+                  cpu_request: 1
+                  mem_request_gig: 1
+                  cpu_limit: 2
+                  mem_limit_gig: 2
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.3
+                  mem_usage_gig:
+                    full_period: 0.5
+                  labels: label_app:seed-a2
+                - pod:
+                  pod_name: seed-app-a3
+                  workload: deployment
+                  cpu_request: 4
+                  mem_request_gig: 4
+                  cpu_limit: 8
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.5
+                  mem_usage_gig:
+                    full_period: 2.0
+                  labels: label_app:seed-a3
+            seed-prod-b:
+              namespace_labels: label_environment:production|label_team:batch
+              pods:
+                - pod:
+                  pod_name: seed-batch-b1
+                  workload: deployment
+                  cpu_request: 3
+                  mem_request_gig: 3
+                  cpu_limit: 6
+                  mem_limit_gig: 6
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 2.5
+                  mem_usage_gig:
+                    full_period: 2.8
+                  labels: label_app:seed-b1
+                - pod:
+                  pod_name: seed-batch-b2
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 2
+                  cpu_limit: 4
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.8
+                  mem_usage_gig:
+                    full_period: 1.5
+                  labels: label_app:seed-b2
+            seed-idle:
+              namespace_labels: label_environment:development|label_team:idle
+              pods:
+                - pod:
+                  pod_name: seed-idle-zombie
+                  workload: deployment
+                  cpu_request: 8
+                  mem_request_gig: 8
+                  cpu_limit: 16
+                  mem_limit_gig: 16
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.01
+                  mem_usage_gig:
+                    full_period: 0.05
+                  labels: label_app:seed-idle
+            seed-staging:
+              namespace_labels: label_environment:staging|label_team:qa
+              pods:
+                - pod:
+                  pod_name: seed-qa-s1
+                  workload: deployment
+                  cpu_request: 1.5
+                  mem_request_gig: 1.5
+                  cpu_limit: 3
+                  mem_limit_gig: 3
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.9
+                  mem_usage_gig:
+                    full_period: 1.0
+                  labels: label_app:seed-s1
+                - pod:
+                  pod_name: seed-qa-s2
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 2
+                  cpu_limit: 4
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.4
+                  mem_usage_gig:
+                    full_period: 0.6
+                  labels: label_app:seed-s2
+        - node:
+          node_name: seed-node-b
+          cpu_cores: 24
+          memory_gig: 48
+          resource_id: 91000002
+          namespaces:
+            seed-analytics:
+              namespace_labels: label_environment:production|label_team:analytics
+              pods:
+                - pod:
+                  pod_name: seed-analytics-1
+                  workload: deployment
+                  cpu_request: 4
+                  mem_request_gig: 8
+                  cpu_limit: 8
+                  mem_limit_gig: 16
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 3.0
+                  mem_usage_gig:
+                    full_period: 6.0
+                  labels: label_app:seed-analytics
+                - pod:
+                  pod_name: seed-analytics-2
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.2
+                  mem_usage_gig:
+                    full_period: 2.5
+                  labels: label_app:seed-analytics-2
+            seed-monitoring:
+              namespace_labels: label_environment:production|label_team:monitoring
+              pods:
+                - pod:
+                  pod_name: seed-prom-1
+                  workload: deployment
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.5
+                  mem_usage_gig:
+                    full_period: 1.0
+                  labels: label_app:seed-prom
