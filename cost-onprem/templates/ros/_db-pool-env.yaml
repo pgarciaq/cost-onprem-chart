@@ -1,0 +1,8 @@
+{{/*
+  ROS pgxpool connection budget — one pool per process (ros-ocp-backend ROS_DB_MAX_CONNS).
+  Included under containers[].env; use nindent to match sibling env entries.
+*/}}
+{{- define "cost-onprem.ros.dbPoolEnv" }}
+- name: ROS_DB_MAX_CONNS
+  value: {{ .Values.ros.dbMaxConns | default 5 | quote }}
+{{- end }}

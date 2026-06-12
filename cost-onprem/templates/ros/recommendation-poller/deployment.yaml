@@ -93,6 +93,7 @@ spec:
               value: {{ .Values.ros.recommendationPoller.recommendationTopic | quote }}
             - name: PROMETHEUS_PORT
               value: {{ .Values.ros.recommendationPoller.metricsPort | quote }}
+{{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
           # Re-enable probes now that PROMETHEUS_PORT environment variable is correctly set
           livenessProbe:
             httpGet:

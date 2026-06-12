@@ -114,6 +114,7 @@ spec:
               value: {{ .Values.ros.processor.historyRetentionDays | default 90 | quote }}
             - name: ROS_STALE_CLEANUP_DAYS
               value: {{ .Values.ros.processor.staleCleanupDays | default 30 | quote }}
+{{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.featureEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.thresholdEnv" . | nindent 12 }}
             # SSL_CERT_FILE is used by Go's crypto/x509 to load CA certificates

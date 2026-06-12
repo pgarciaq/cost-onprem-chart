@@ -641,6 +641,20 @@ These are set automatically by the Helm chart in `_helpers-koku.tpl`:
 
 > **Important**: `ENHANCED_ORG_ADMIN` must remain `False`. Setting it to `True` causes Koku to bypass RBAC entirely for users with `is_org_admin: true` in their identity header, which defeats the purpose of RBAC enforcement.
 
+#### ROS database connection pool (Helm values)
+
+Each ROS process (API, processor, recommendation poller, housekeeper, partition cleaner) maintains its own pgxpool. The chart sets `ROS_DB_MAX_CONNS` from `ros.dbMaxConns` (default `5`).
+
+| `values.yaml` key | Env var | Default | Description |
+|-------------------|---------|---------|-------------|
+| `ros.dbMaxConns` | `ROS_DB_MAX_CONNS` | `5` | pgxpool max connections per ROS pod |
+
+**Connection budget:** `total_ros_conns ≈ ros.dbMaxConns × num_ros_pods`. With the default chart layout (~5 ROS pods at 1 replica each), that is about 25 connections. Reserve additional headroom for Koku workers/API, RBAC, Kruize, and PostgreSQL admin sessions.
+
+The bundled PostgreSQL image uses the upstream default `max_connections=100`. If you scale ROS replicas or raise `ros.dbMaxConns`, increase `max_connections` on external PostgreSQL or tune other services accordingly. SaaS/console.redhat.com sets `ROS_DB_MAX_CONNS` via app-interface (not this Helm value).
+
+> **Removed:** Legacy `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` env vars were never read by ros-ocp-backend and have been removed from chart templates.
+
 #### ROS processor retention (Helm values)
 
 The chart injects these into the **ros-processor** deployment only (24-hour background sweep in ros-ocp-backend):

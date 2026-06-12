@@ -83,6 +83,7 @@ spec:
             # Topic for source deletion events from Koku (matches hardcoded topic in Koku)
             - name: SOURCES_EVENT_TOPIC
               value: "platform.sources.event-stream"
+{{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
           {{- if and .Values.kafka.tls.enabled .Values.kafka.tls.caCertSecret }}
           volumeMounts:
             {{- include "cost-onprem.kafka.tlsVolumeMount" . | nindent 12 }}
