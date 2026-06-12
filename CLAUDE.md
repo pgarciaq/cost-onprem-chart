@@ -85,6 +85,40 @@ NAMESPACE=cost-onprem ./scripts/run-pytest.sh --no-ui
 ./scripts/run-pytest.sh --ui
 ```
 
+### Automatic Data Seeding
+
+When you run pytest via `run-pytest.sh`, a **session-scoped autouse fixture**
+(`tests/fixtures/data_seeding.py`) runs once before any tests execute. It
+queries the ROS database for row counts and, if any category is below its
+minimum threshold, generates NISE data from templates in
+`tests/fixtures/nise_templates/`, uploads it through ingress, and polls until
+processing completes.
+
+| Category | Table | Minimum rows |
+|----------|-------|--------------|
+| container | `daily_container_digests` (all_hours) | 100 |
+| namespace | `daily_namespace_digests` (all_hours) | 50 |
+| PVC | `daily_pvc_digests` | 20 |
+| GPU | `gpu_container_digests` | 20 |
+| cluster_quota | `cluster_quota_recommendation_sets` | 2 |
+| business_hours | `daily_container_digests` (business_hours) | 30 |
+
+**Timing:** ~2 seconds when data already meets thresholds; 5–15 minutes on a
+fresh cluster depending on how many categories need seeding.
+
+**Skip conditions:** Set `E2E_SKIP_SEED=true` to bypass entirely. Seeding also
+skips when data already meets thresholds, when the cluster is unavailable (no
+ingress/db pods), when Keycloak/ingress fixtures are missing (helm-only runs),
+or when NISE is not installed.
+
+```bash
+# Fast iteration on a cluster that already has data
+E2E_SKIP_SEED=true NAMESPACE=cost-onprem ./scripts/run-pytest.sh --ros
+```
+
+See [Test Data Setup](docs/development/test-data-setup.md#automatic-data-seeding)
+for full details.
+
 ### Test Markers
 - `component` - Single-component tests
 - `integration` - Multi-component tests

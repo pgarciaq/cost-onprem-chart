@@ -61,6 +61,31 @@ NAMESPACE=cost-onprem ./scripts/run-pytest.sh --extended
 ./scripts/run-pytest.sh --ros
 ```
 
+## Automatic Data Seeding
+
+A session-scoped autouse pytest fixture in `tests/fixtures/data_seeding.py`
+runs at session start (before any tests). It is **idempotent**: it queries ROS
+DB row counts and only seeds categories below their thresholds.
+
+**Flow:** check counts → generate NISE data from `tests/fixtures/nise_templates/`
+(4 YAML files: container, PVC, GPU, cluster quota) → register source → upload
+via ingress → poll until processed (5 min per category, 15 min session budget).
+
+**Thresholds:** container 100, namespace 50, PVC 20, GPU 20, cluster_quota 2,
+business_hours 30.
+
+**Skip when:**
+- `E2E_SKIP_SEED=true` (or `1` / `yes`)
+- All categories already meet thresholds (~2 s fast path)
+- Cluster unavailable (no ingress/db pod)
+- Keycloak/ingress fixtures missing (helm-only runs)
+- NISE not installed
+
+**Timing:** fast path ~2 s; cold cluster 5–15 min depending on missing categories.
+
+Agents should not duplicate this seeding in individual tests — rely on the
+fixture or use `setup-test-data.sh` for scenario-specific data needs.
+
 ## Test Markers
 - `component` - Single-component tests
 - `integration` - Multi-component tests
