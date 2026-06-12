@@ -57,14 +57,19 @@ ros:
     create: true
     name: ros-backend
 
+  # PostgreSQL connection pool (pgxpool max per ROS process).
+  # Each ROS pod (api, processor, recommendationPoller, housekeeper, partitionCleaner)
+  # opens its own pool. Budget: total_ros_conns = dbMaxConns × num_ros_pods.
+  # Bundled PostgreSQL defaults to max_connections=100; reserve headroom for Koku,
+  # RBAC, Kruize, and admin sessions. Default 5 × ~5 pods ≈ 25 ROS connections.
+  dbMaxConns: 5
+
   # API Component - REST API for ROS
   api:
     port: 8000
     metricsPort: 9000
     pathPrefix: /api
 
-    dbPoolSize: 10
-    dbMaxOverflow: 20
     serviceName: ros-api
     logLevel: INFO
     # Business-hours settings API and dual-stream recommendations (ros-api kill-switch).
@@ -711,6 +716,8 @@ database:
     # Server connection settings
     host: internal  # Use "internal" for built-in StatefulSet
     port: 5432
+    # Bundled PostgreSQL uses the image default max_connections=100. Size ros.dbMaxConns
+    # and replica counts so ROS + Koku + RBAC + Kruize stay below that budget.
     # adminUser removed - stored in cost-onprem-db-credentials secret (key: postgres-user)
     # adminPassword removed - stored in cost-onprem-db-credentials secret (key: postgres-password)
     sslMode: disable

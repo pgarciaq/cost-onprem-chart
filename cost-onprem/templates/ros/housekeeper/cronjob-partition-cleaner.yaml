@@ -59,6 +59,7 @@ spec:
                   key: ros-password
             - name: DATABASE_URL
               value: {{ include "cost-onprem.database.url" . }}
+{{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
             resources:
               {{- toYaml .Values.ros.housekeeper.partitionCleaner.resources | nindent 14 }}
 {{- end }}

@@ -63,10 +63,7 @@ spec:
               value: {{ include "cost-onprem.rbac.service.port" . | quote }}
             - name: RBACPROTOCOL
               value: "http"
-            - name: DB_POOL_SIZE
-              value: {{ .Values.ros.api.dbPoolSize | quote }}
-            - name: DB_MAX_OVERFLOW
-              value: {{ .Values.ros.api.dbMaxOverflow | quote }}
+{{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
             - name: SERVICE_NAME
               value: {{ .Values.ros.api.serviceName | quote }}
             - name: LOG_LEVEL
