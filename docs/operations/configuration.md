@@ -976,9 +976,26 @@ The following topics must exist before the application starts processing data. T
 |-------|------------|---------|-----------|-----------|
 | `platform.upload.announce` | 3 | Upload announcements for cost reports | Ingress | Koku Listener |
 | `platform.payload-status` | 3 | Payload processing status tracking | Ingress | Koku Listener |
-| `hccm.ros.events` | 3 | Resource optimization events | Koku (MASU) | ROS Processor |
+| `hccm.ros.events` | 12 | Resource optimization events | Koku (MASU) | ROS Processor |
+| `hccm.ros.events.dlq` | 12 | Dead-letter queue for failed ROS events | ROS Processor | (manual replay) |
 | `platform.sources.event-stream` | 3 | Source configuration events | Sources API | Koku Listener |
 | `rosocp.kruize.recommendations` | 3 | Kruize optimization recommendations | Kruize | ROS Recommendation Poller |
+
+**Partition configuration:** `deploy-kafka.sh` reads partition counts from `kafka.topics` in `cost-onprem/values.yaml` (or a custom file via `-f`). Defaults: `hccm.ros.events` and `hccm.ros.events.dlq` use **12** partitions; all other topics use **3**. Scale `ros.processor.replicas` up to the `hccm.ros.events` partition count for maximum parallel ingest.
+
+```yaml
+kafka:
+  topics:
+    defaultPartitions: 3
+    hccmRosEvents:
+      partitions: 12
+    hccmRosEventsDlq:
+      partitions: 12
+```
+
+Environment variable overrides: `KAFKA_HCCM_ROS_EVENTS_PARTITIONS`, `KAFKA_HCCM_ROS_EVENTS_DLQ_PARTITIONS`, `KAFKA_DEFAULT_TOPIC_PARTITIONS`.
+
+> **Existing clusters:** `deploy-kafka.sh` skips topics that already exist. To increase partitions on a running cluster, alter the KafkaTopic CR or use `kafka-topics.sh --alter --partitions 12`.
 
 **Recommended topic settings:**
 - **Replication factor**: Match your broker count (3 for production)
@@ -993,6 +1010,12 @@ The Helm chart does **not** deploy Kafka — it only configures applications to 
 kafka:
   bootstrapServers: "cost-onprem-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092"
   securityProtocol: "PLAINTEXT"
+  topics:
+    defaultPartitions: 3
+    hccmRosEvents:
+      partitions: 12
+    hccmRosEventsDlq:
+      partitions: 12
 ```
 
 The `install-helm-chart.sh` script auto-detects the bootstrap address from the deployed Kafka cluster. To override (e.g., for an external cluster):

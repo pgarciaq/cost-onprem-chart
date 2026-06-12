@@ -192,6 +192,11 @@ KAFKA_BOOTSTRAP_SERVERS=my-kafka:9092 ./deploy-kafka.sh
 - `KAFKA_CONTROLLER_REPLICAS`: Number of controller nodes (default: `3`)
 - `KAFKA_CONTROLLER_STORAGE`: Controller persistent volume size (default: `20Gi`)
 - `KAFKA_BOOTSTRAP_SERVERS`: Use external Kafka (skips deployment)
+- `KAFKA_DEFAULT_TOPIC_PARTITIONS`: Default partitions for non-ROS topics (default: `3`)
+- `KAFKA_HCCM_ROS_EVENTS_PARTITIONS`: Partitions for `hccm.ros.events` (default: `12`)
+- `KAFKA_HCCM_ROS_EVENTS_DLQ_PARTITIONS`: Partitions for `hccm.ros.events.dlq` (default: same as ROS events)
+
+**Topic partitions:** Read from `kafka.topics` in `cost-onprem/values.yaml` unless overridden by the env vars above. Pass `-f <values.yaml>` to use a custom values file.
 
 ---
 

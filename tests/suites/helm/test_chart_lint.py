@@ -167,6 +167,18 @@ class TestChartMetadata:
 
         assert isinstance(values, dict), "values.yaml should be a dictionary"
 
+    def test_kafka_ros_events_topic_partitions_default(self, values_file: str):
+        """hccm.ros.events should default to 12 partitions for parallel ROS ingest."""
+        import yaml
+
+        with open(values_file) as f:
+            values = yaml.safe_load(f)
+
+        partitions = values["kafka"]["topics"]["hccmRosEvents"]["partitions"]
+        assert partitions == 12, (
+            f"kafka.topics.hccmRosEvents.partitions should be 12, got {partitions}"
+        )
+
 
 @pytest.mark.helm
 @pytest.mark.component

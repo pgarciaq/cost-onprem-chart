@@ -962,6 +962,15 @@ kafka:
     enabled: false
     caCertSecret: ""           # K8s Secret with key: ca.crt
 
+  # Topic partition counts used by deploy-kafka.sh when creating Strimzi KafkaTopic resources.
+  # Increase hccmRosEvents partitions before scaling ros-processor replicas beyond the current count.
+  topics:
+    defaultPartitions: 3
+    hccmRosEvents:
+      partitions: 12
+    hccmRosEventsDlq:
+      partitions: 12
+
 # -----------------------------------------------------------------------------
 # Shared Infrastructure - Cache (Valkey)
 # -----------------------------------------------------------------------------
