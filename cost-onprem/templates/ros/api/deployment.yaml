@@ -7,7 +7,9 @@ metadata:
     {{- include "cost-onprem.labels" . | nindent 4 }}
     app.kubernetes.io/component: ros-api
 spec:
-  replicas: 1
+  {{- if not .Values.ros.api.autoscaling.enabled }}
+  replicas: {{ .Values.ros.api.replicaCount | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "cost-onprem.selectorLabels" . | nindent 6 }}

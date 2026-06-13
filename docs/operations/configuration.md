@@ -651,6 +651,8 @@ Each ROS process (API, processor, recommendation poller, housekeeper, partition 
 
 **Connection budget:** `total_ros_conns ≈ ros.dbMaxConns × num_ros_pods`. With the default chart layout (~5 ROS pods at 1 replica each), that is about 25 connections. Reserve additional headroom for Koku workers/API, RBAC, Kruize, and PostgreSQL admin sessions.
 
+When ROS API autoscaling is enabled (`ros.api.autoscaling.enabled: true`), API pod count can grow to `ros.api.autoscaling.maxReplicas`. Budget API connections as `ros.dbMaxConns × maxReplicas` (default 5 × 4 = 20) plus connections from processor, poller, housekeeper, and partition cleaner.
+
 The bundled PostgreSQL image uses the upstream default `max_connections=100`. If you scale ROS replicas or raise `ros.dbMaxConns`, increase `max_connections` on external PostgreSQL or tune other services accordingly. SaaS/console.redhat.com sets `ROS_DB_MAX_CONNS` via app-interface (not this Helm value).
 
 > **Removed:** Legacy `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` env vars were never read by ros-ocp-backend and have been removed from chart templates.
@@ -678,6 +680,35 @@ The chart injects these into the **ros-processor** deployment only (24-hour back
 | `ros.sampleRetentionDays` | `ROS_SAMPLE_RETENTION_DAYS` | `45` | Drop `container_usage_samples` / `namespace_usage_samples` partitions older than N days (digest plots use digests retained by `ROS_RETENTION_MONTHS`) |
 
 Staleness marking (`ROS_STALENESS_THRESHOLD_HOURS`, default 48) is not chart-templated; set it via `ros.thresholdEnv` if you need to override the compiled default. See [ros-ocp-backend retention](https://github.com/project-koku/ros-ocp-backend/blob/main/docs/operations/retention.md).
+
+#### ROS API autoscaling (Helm values)
+
+The ROS API deployment is stateless and can scale horizontally when the cluster provides metrics (for example OpenShift cluster monitoring or metrics-server). HPA is **disabled by default** for small/on-prem footprints.
+
+| `values.yaml` key | Default | Description |
+|-------------------|---------|-------------|
+| `ros.api.autoscaling.enabled` | `false` | Create a `HorizontalPodAutoscaler` for the ROS API Deployment |
+| `ros.api.autoscaling.minReplicas` | `1` | Minimum API pods when HPA is enabled |
+| `ros.api.autoscaling.maxReplicas` | `4` | Maximum API pods when HPA is enabled |
+| `ros.api.autoscaling.targetCPUUtilizationPercentage` | `70` | Target average CPU utilization across API pods |
+| `ros.api.autoscaling.targetMemoryUtilizationPercentage` | *(unset)* | Optional memory utilization target |
+| `ros.api.replicaCount` | `1` | Static replica count when `autoscaling.enabled` is `false` |
+
+**Prerequisites:** CPU-based HPA requires `resources.requests.cpu` on the API container (provided by `resources.application`). The cluster must expose resource metrics to the HPA controller.
+
+**Connection budget:** Each API pod opens `ros.dbMaxConns` PostgreSQL connections. Ensure `ros.api.autoscaling.maxReplicas × ros.dbMaxConns` plus all other ROS and Koku workloads stays below PostgreSQL `max_connections`.
+
+Example production override:
+
+```yaml
+ros:
+  api:
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+```
 
 #### ROS RBAC Integration Variables
 
@@ -1219,7 +1250,14 @@ ingress:
 
 ros:
   api:
+    # Static scaling (no metrics-server required)
     replicaCount: 2
+    # Or enable HPA for CPU-driven scaling (requires metrics-server)
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
 
 # Pod disruption budget
 podDisruptionBudget:

@@ -145,6 +145,40 @@ class TestChartTemplate:
         assert "name: ROS_SAMPLE_RETENTION_DAYS" in section
         assert 'value: "45"' in section
 
+    def test_ros_api_hpa_not_rendered_when_disabled(self, chart_path: str):
+        """ROS API HPA must not render when autoscaling is disabled (default)."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+        assert "kind: HorizontalPodAutoscaler" not in output
+
+    def test_ros_api_hpa_rendered_when_enabled(self, chart_path: str):
+        """ROS API HPA should render with configured limits when autoscaling is enabled."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "ros.api.autoscaling.enabled": "true",
+            "ros.api.autoscaling.minReplicas": "2",
+            "ros.api.autoscaling.maxReplicas": "6",
+            "ros.api.autoscaling.targetCPUUtilizationPercentage": "65",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, f"Helm template failed:\n{output}"
+
+        hpa_blocks = output.split("kind: HorizontalPodAutoscaler")
+        assert len(hpa_blocks) > 1, "HorizontalPodAutoscaler not found in rendered templates"
+        hpa_section = hpa_blocks[1].split("---")[0]
+
+        assert "ros-api" in hpa_section
+        assert "minReplicas: 2" in hpa_section
+        assert "maxReplicas: 6" in hpa_section
+        assert "averageUtilization: 65" in hpa_section
+        assert "name: cpu" in hpa_section
+
+        deployment_blocks = output.split("name: test-release-cost-onprem-ros-api")
+        assert len(deployment_blocks) > 1, "ros-api Deployment not found"
+        deployment_section = deployment_blocks[1].split("---")[0]
+        assert "kind: Deployment" in deployment_section
+        assert "replicas:" not in deployment_section.split("spec:")[1].split("selector:")[0]
+
 
 @pytest.mark.helm
 @pytest.mark.component
