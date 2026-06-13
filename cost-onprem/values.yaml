@@ -64,6 +64,10 @@ ros:
   # RBAC, Kruize, and admin sessions. Default 5 × ~5 pods ≈ 25 ROS connections.
   dbMaxConns: 5
 
+  # Raw usage sample retention for boxplot/digest plot lookback (days).
+  # Digests use ROS_RETENTION_MONTHS (default 6 months) via the processor retention sweep.
+  sampleRetentionDays: 45
+
   # Go runtime soft memory limit (GOMEMLIMIT). Go 1.19+ uses this to tune GC before
   # the container hits its hard memory limit and gets OOM-killed. Set each value to
   # ~90% of that component's resources.limits.memory using Go's MiB format

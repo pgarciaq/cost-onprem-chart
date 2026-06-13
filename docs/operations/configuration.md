@@ -675,6 +675,7 @@ The chart injects these into the **ros-processor** deployment only (24-hour back
 |-------------------|---------|---------|-------------|
 | `ros.processor.historyRetentionDays` | `ROS_HISTORY_RETENTION_DAYS` | `90` | Drop `recommendation_history` / `recommendation_quality` partitions older than N days |
 | `ros.processor.staleCleanupDays` | `ROS_STALE_CLEANUP_DAYS` | `30` | Delete `recommendation_sets` with `stale = true` older than N days |
+| `ros.sampleRetentionDays` | `ROS_SAMPLE_RETENTION_DAYS` | `45` | Drop `container_usage_samples` / `namespace_usage_samples` partitions older than N days (digest plots use digests retained by `ROS_RETENTION_MONTHS`) |
 
 Staleness marking (`ROS_STALENESS_THRESHOLD_HOURS`, default 48) is not chart-templated; set it via `ros.thresholdEnv` if you need to override the compiled default. See [ros-ocp-backend retention](https://github.com/project-koku/ros-ocp-backend/blob/main/docs/operations/retention.md).
 
