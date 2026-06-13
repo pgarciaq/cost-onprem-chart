@@ -115,6 +115,8 @@ spec:
               value: {{ .Values.ros.processor.historyRetentionDays | default 90 | quote }}
             - name: ROS_STALE_CLEANUP_DAYS
               value: {{ .Values.ros.processor.staleCleanupDays | default 30 | quote }}
+            - name: ROS_SAMPLE_RETENTION_DAYS
+              value: {{ .Values.ros.sampleRetentionDays | default 45 | quote }}
 {{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.featureEnv" . | nindent 12 }}
 {{- include "cost-onprem.ros.thresholdEnv" . | nindent 12 }}

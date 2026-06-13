@@ -134,6 +134,17 @@ class TestChartTemplate:
         assert "name: GOMEMLIMIT" in cleaner_section
         assert 'value: "461MiB"' in cleaner_section
 
+    def test_ros_processor_sets_sample_retention_days(self, chart_path: str):
+        """ros-processor should expose ROS_SAMPLE_RETENTION_DAYS for raw sample sweeps."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        blocks = output.split("name: ros-processor")
+        assert len(blocks) > 1, "ros-processor container not found"
+        section = blocks[1].split("---")[0]
+        assert "name: ROS_SAMPLE_RETENTION_DAYS" in section
+        assert 'value: "45"' in section
+
 
 @pytest.mark.helm
 @pytest.mark.component
