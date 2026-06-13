@@ -108,6 +108,20 @@ ros:
     # When true, exhausted masu reship retries transition to forward-only BH recommendations.
     reshipForwardOnlyFallback: false
 
+    # Static replica count when autoscaling is disabled.
+    replicaCount: 1
+
+    # Horizontal Pod Autoscaler (requires cluster metrics-server and CPU requests on pods).
+    # Connection budget: maxReplicas × ros.dbMaxConns must fit within PostgreSQL max_connections
+    # (default ros.dbMaxConns=5, maxReplicas=4 → up to 20 API connections; reserve headroom
+    # for processor, poller, housekeeper, Koku, RBAC, and admin sessions).
+    autoscaling:
+      enabled: false  # Disabled by default; enable in production
+      minReplicas: 1
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+      # targetMemoryUtilizationPercentage: 80  # Optional
+
     # Tag filtering enabled by default; filterable keys are gated in Koku Settings > Tags.
     # On-prem uses shared PostgreSQL (tagsSource: db); push sync stays disabled.
     tagsEnabled: true
