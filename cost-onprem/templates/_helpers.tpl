@@ -165,6 +165,30 @@ Usage: {{ include "cost-onprem.storage.databaseClass" . }}
 {{- end }}
 
 {{/*
+Bundled PostgreSQL container resources — database.resources takes precedence over resources.database.
+Usage: {{ include "cost-onprem.database.resources" . | nindent 12 }}
+*/}}
+{{- define "cost-onprem.database.resources" -}}
+{{- if .Values.database.resources -}}
+{{- toYaml .Values.database.resources -}}
+{{- else -}}
+{{- toYaml .Values.resources.database -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Bundled PostgreSQL PVC size — database.storage.size takes precedence over database.server.storage.size.
+Usage: {{ include "cost-onprem.database.storage.size" . }}
+*/}}
+{{- define "cost-onprem.database.storage.size" -}}
+{{- if and .Values.database.storage .Values.database.storage.size -}}
+{{- .Values.database.storage.size -}}
+{{- else -}}
+{{- .Values.database.server.storage.size -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Cache service name (valkey)
 */}}
 {{- define "cost-onprem.cache.name" -}}

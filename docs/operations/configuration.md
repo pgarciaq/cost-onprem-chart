@@ -471,6 +471,40 @@ resources:
 
 ### Database Configuration
 
+> **Production tuning:** The chart deploys a single unified PostgreSQL StatefulSet. Configure container resources, PVC size, and `postgresql.conf` settings via `database.resources`, `database.storage.size`, and `database.postgresqlConfiguration`. See **[Database Tuning](database-tuning.md)** for sizing profiles.
+
+```yaml
+database:
+  deploy: true
+  resources:
+    requests:
+      memory: "512Mi"   # Demo/dev only — increase for production
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  storage:
+    size: "30Gi"        # Demo/dev only — see database-tuning.md
+  postgresqlConfiguration:
+    shared_buffers: "128MB"
+    work_mem: "4MB"
+    effective_cache_size: "384MB"
+    max_connections: "100"
+  server:
+    host: internal
+    port: 5432
+  ros:
+    name: costonprem_ros
+  kruize:
+    name: costonprem_kruize
+  koku:
+    name: costonprem_koku
+  rbac:
+    name: costonprem_rbac
+```
+
+Legacy per-service storage keys below are deprecated; all databases share one PVC on the unified server.
+
 ```yaml
 database:
   ros:
@@ -653,7 +687,7 @@ Each ROS process (API, processor, recommendation poller, housekeeper, partition 
 
 When ROS API autoscaling is enabled (`ros.api.autoscaling.enabled: true`), API pod count can grow to `ros.api.autoscaling.maxReplicas`. Budget API connections as `ros.dbMaxConns × maxReplicas` (default 5 × 4 = 20) plus connections from processor, poller, housekeeper, and partition cleaner.
 
-The bundled PostgreSQL image uses the upstream default `max_connections=100`. If you scale ROS replicas or raise `ros.dbMaxConns`, increase `max_connections` on external PostgreSQL or tune other services accordingly. SaaS/console.redhat.com sets `ROS_DB_MAX_CONNS` via app-interface (not this Helm value).
+The bundled PostgreSQL image default is `max_connections=100` (overridable via `database.postgresqlConfiguration.max_connections`). If you scale ROS replicas or raise `ros.dbMaxConns`, increase `max_connections` accordingly. SaaS/console.redhat.com sets `ROS_DB_MAX_CONNS` via app-interface (not this Helm value).
 
 > **Removed:** Legacy `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` env vars were never read by ros-ocp-backend and have been removed from chart templates.
 

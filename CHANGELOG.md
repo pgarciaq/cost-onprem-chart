@@ -6,4 +6,5 @@ All notable changes to the cost-onprem Helm chart are documented in this file.
 
 ### Added
 
+- PostgreSQL tuning exposed via Helm values: `database.resources`, `database.storage.size`, and `database.postgresqlConfiguration` (ConfigMap mounted to sclorg `postgresql-cfg/`). See `docs/operations/database-tuning.md`.
 - Optional HorizontalPodAutoscaler for the ROS API deployment (`ros.api.autoscaling`). Disabled by default; enable in production values overrides when metrics-server (or equivalent) is available.

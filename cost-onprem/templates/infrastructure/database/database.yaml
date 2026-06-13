@@ -98,8 +98,13 @@ spec:
             - name: postgres-storage
               mountPath: /var/lib/postgresql/data
             - name: init-scripts
-              mountPath: /docker-entrypoint-initdb.d
+              mountPath: /opt/app-root/src/postgresql-init
               readOnly: true
+            {{- if .Values.database.postgresqlConfiguration }}
+            - name: pgconfig
+              mountPath: /opt/app-root/src/postgresql-cfg
+              readOnly: true
+            {{- end }}
           livenessProbe:
             exec:
               command:
@@ -123,11 +128,16 @@ spec:
           securityContext:
             {{- include "cost-onprem.securityContext.container" . | nindent 12 }}
           resources:
-            {{- toYaml .Values.resources.database | nindent 12 }}
+            {{- include "cost-onprem.database.resources" . | nindent 12 }}
       volumes:
         - name: init-scripts
           configMap:
             name: {{ include "cost-onprem.fullname" . }}-db-init
+        {{- if .Values.database.postgresqlConfiguration }}
+        - name: pgconfig
+          configMap:
+            name: {{ include "cost-onprem.fullname" . }}-pgconfig
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: postgres-storage
@@ -137,5 +147,5 @@ spec:
         storageClassName: {{ include "cost-onprem.storage.databaseClass" . }}
         resources:
           requests:
-            storage: {{ .Values.database.server.storage.size }}
+            storage: {{ include "cost-onprem.database.storage.size" . }}
 {{- end }}
