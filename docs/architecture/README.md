@@ -18,6 +18,7 @@ System design, component interactions, and technical architecture documentation 
 | **[Helm Templates Reference](helm-templates-reference.md)** | Technical reference for all Helm chart templates and Kubernetes resources |
 | **[Sources API Production Flow](sources-api-production-flow.md)** | Architecture and workflow for provider creation using Sources API and Kafka |
 | **[External Keycloak Scenario](external-keycloak-scenario.md)** | Analysis and architecture for connecting to external Keycloak |
+| **[ADR-001: PostgreSQL Tuning Knobs](adr-001-postgresql-tuning-knobs.md)** | Curated `postgresql.conf` settings vs env vars or full config replacement |
 
 ## Quick Links
 

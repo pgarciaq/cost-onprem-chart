@@ -748,6 +748,36 @@ database:
   # See docs/operations/configuration.md "External Infrastructure" for full setup guide.
   deploy: true
 
+  # Container resources for the bundled PostgreSQL StatefulSet.
+  # ⚠️  512Mi is a demo/dev default only — insufficient for production fleets (1k+ containers).
+  # See docs/operations/database-tuning.md for sizing profiles.
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # PVC size for the unified PostgreSQL data directory (ROS, Koku, Kruize, RBAC share one volume).
+  # ⚠️  30Gi is a demo/dev default — increase for production; see database-tuning.md.
+  storage:
+    size: "30Gi"
+
+  # PostgreSQL server configuration appended to postgresql.conf via the sclorg postgresql-cfg/ hook.
+  # Tune memory-related settings together with database.resources.limits.memory.
+  # Connection budget: sum of all app pools (ROS, Koku, RBAC, Kruize) must stay below max_connections.
+  postgresqlConfiguration:
+    shared_buffers: "128MB"       # Recommend 25% of container memory; 1-2GB for production
+    work_mem: "4MB"               # Recommend 16-32MB for complex ROS aggregation queries
+    effective_cache_size: "384MB" # Recommend ~75% of container memory
+    max_connections: "100"        # Ensure sum of all app pools fits; see D-2 connection budgeting
+    maintenance_work_mem: "64MB"  # Recommend 128-256MB for production vacuum/reindex
+    random_page_cost: "1.1"       # SSD-optimized (default 4.0 assumes spinning disk)
+    # Autovacuum (D-3 sets per-table overrides; these are server-wide defaults)
+    autovacuum_max_workers: "3"
+    log_autovacuum_min_duration: "1000"  # Log autovacuum runs taking longer than 1s (milliseconds)
+
   # Unified Database Server Configuration
   server:
     image:
@@ -757,7 +787,8 @@ database:
       # the latter. Secret key postgres-user must be the DB superuser name (default: postgres).
 
     storage:
-      size: 30Gi  # Total storage for all databases (sum of individual DBs)
+      # Deprecated: prefer database.storage.size (kept for backward-compatible --set overrides).
+      size: 30Gi
 
     # Server connection settings
     host: internal  # Use "internal" for built-in StatefulSet
@@ -1155,11 +1186,11 @@ gatewayRoute:
 # Resource Defaults
 # -----------------------------------------------------------------------------
 resources:
-  # PostgreSQL resources
+  # PostgreSQL resources (deprecated — prefer database.resources; used as fallback when unset).
   database:
     requests:
-      memory: "256Mi"
-      cpu: "100m"
+      memory: "512Mi"
+      cpu: "250m"
     limits:
       memory: "512Mi"
       cpu: "500m"

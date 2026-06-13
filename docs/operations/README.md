@@ -22,6 +22,7 @@ Installation, deployment, configuration, and operational guides for Cost Managem
 | Document | Description |
 |----------|-------------|
 | **[Configuration Reference](configuration.md)** | Complete reference of all Helm values and configuration options |
+| **[Database Tuning](database-tuning.md)** | PostgreSQL memory, storage, and `postgresql.conf` sizing profiles |
 | **[Resource Requirements](resource-requirements.md)** | Hardware and resource sizing guidance |
 | **[Worker Deployment Scenarios](worker-deployment-scenarios.md)** | Different worker deployment configurations |
 

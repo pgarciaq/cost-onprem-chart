@@ -1,0 +1,20 @@
+{{- if and .Values.database.deploy .Values.database.postgresqlConfiguration }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cost-onprem.fullname" . }}-pgconfig
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cost-onprem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  annotations:
+    # Create PostgreSQL tuning config before database StatefulSet starts (pre-install hook)
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+data:
+  # Appended to postgresql.conf by the sclorg/RHEL image postgresql-cfg/ hook.
+  custom-postgresql.conf: |
+    {{- range $key, $value := .Values.database.postgresqlConfiguration }}
+    {{ $key }} = {{ $value }}
+    {{- end }}
+{{- end }}

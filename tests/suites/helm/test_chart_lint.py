@@ -220,3 +220,76 @@ class TestChartMetadata:
         assert partitions == 12, (
             f"kafka.topics.hccmRosEvents.partitions should be 12, got {partitions}"
         )
+
+
+@pytest.mark.helm
+@pytest.mark.component
+class TestDatabasePostgreSQLConfiguration:
+    """Tests for bundled PostgreSQL tuning values and templates."""
+
+    def test_default_postgresql_configuration_renders(self, chart_path: str):
+        """Default postgresqlConfiguration should render in pgconfig ConfigMap."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, f"Helm template failed:\n{output}"
+
+        assert "name: test-release-cost-onprem-pgconfig" in output
+        assert "custom-postgresql.conf:" in output
+        assert "shared_buffers = 128MB" in output
+        assert "work_mem = 4MB" in output
+        assert "max_connections = 100" in output
+        assert "random_page_cost = 1.1" in output
+
+    def test_custom_postgresql_configuration_values_applied(self, chart_path: str):
+        """Custom postgresqlConfiguration overrides should appear in rendered ConfigMap."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "database.postgresqlConfiguration.shared_buffers": "2GB",
+            "database.postgresqlConfiguration.work_mem": "64MB",
+            "database.postgresqlConfiguration.max_connections": "300",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, f"Helm template failed:\n{output}"
+
+        assert "shared_buffers = 2GB" in output
+        assert "work_mem = 64MB" in output
+        assert "max_connections = 300" in output
+
+    def test_database_resources_and_storage_defaults_render(self, chart_path: str):
+        """Database StatefulSet should use database.resources and database.storage.size defaults."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, f"Helm template failed:\n{output}"
+
+        db_blocks = output.split("kind: StatefulSet")
+        db_section = ""
+        for block in db_blocks:
+            if "app.kubernetes.io/component: database" in block:
+                db_section = block
+                break
+        assert db_section, "database StatefulSet not found in rendered templates"
+
+        assert 'memory: "512Mi"' in db_section
+        assert "storage: 30Gi" in db_section
+        assert "mountPath: /opt/app-root/src/postgresql-cfg" in db_section
+
+    def test_database_resource_limits_can_be_overridden(self, chart_path: str):
+        """database.resources overrides should replace demo defaults in the StatefulSet."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "database.resources.requests.memory": "2Gi",
+            "database.resources.limits.memory": "4Gi",
+            "database.storage.size": "100Gi",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, f"Helm template failed:\n{output}"
+
+        db_blocks = output.split("kind: StatefulSet")
+        db_section = ""
+        for block in db_blocks:
+            if "app.kubernetes.io/component: database" in block:
+                db_section = block
+                break
+        assert db_section, "database StatefulSet not found"
+
+        assert 'memory: "2Gi"' in db_section
+        assert 'memory: "4Gi"' in db_section
+        assert "storage: 100Gi" in db_section
