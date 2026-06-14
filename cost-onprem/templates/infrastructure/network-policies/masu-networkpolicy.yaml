@@ -32,6 +32,10 @@ spec:
             matchLabels:
               app.kubernetes.io/instance: {{ .Release.Name }}
               app.kubernetes.io/component: cost-management-api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: ros-api
       ports:
         - protocol: TCP
           port: {{ include "cost-onprem.koku.api.port" . }}
