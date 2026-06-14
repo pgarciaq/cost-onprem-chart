@@ -256,7 +256,7 @@ class TestDatabasePostgreSQLConfiguration:
         assert "custom-postgresql.conf:" in output
         assert "shared_buffers = 128MB" in output
         assert "work_mem = 4MB" in output
-        assert "max_connections = 100" in output
+        assert "max_connections = 200" in output
         assert "random_page_cost = 1.1" in output
 
     def test_custom_postgresql_configuration_values_applied(self, chart_path: str):
