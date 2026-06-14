@@ -1,0 +1,38 @@
+{{- if and .Values.costManagement.masu.enabled .Values.networkPolicies.enabled }}
+---
+# Restrict masu-server ingress to internal callers only.
+# Masu exposes AllowAny endpoints (effective_rates, reship_ros) intended for
+# in-cluster ROS processor and Koku workers — not for external clients.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cost-onprem.fullname" . }}-masu-access
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cost-onprem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: networkpolicy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: cost-processor
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: cost-worker
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: ros-processor
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: cost-management-api
+      ports:
+        - protocol: TCP
+          port: {{ include "cost-onprem.koku.api.port" . }}
+{{- end }}
