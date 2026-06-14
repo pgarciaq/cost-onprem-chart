@@ -9,11 +9,15 @@
 - name: ROS_TAGS_ENABLED
   value: {{ .Values.ros.api.tagsEnabled | default true | quote }}
 - name: ROS_TAGS_SOURCE
-  value: {{ .Values.ros.api.tagsSource | default "db" | quote }}
+  value: {{ .Values.ros.api.tagsSource | default "api" | quote }}
+- name: ROS_INTERNAL_TAGS_AUTH_REQUIRED
+  value: {{ .Values.ros.internalAuth.enabled | default true | quote }}
 - name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS
-  value: {{ .Values.ros.api.tagsAllowedServiceAccounts | default "" | quote }}
+  value: {{ include "cost-onprem.ros.tagsAllowedServiceAccounts" . | quote }}
 - name: ROS_TAGS_DEV_TOKEN
   value: {{ .Values.ros.api.tagsDevToken | default "" | quote }}
+- name: ROS_CSV_ALLOWED_HOSTS
+  value: {{ include "cost-onprem.ros.csvAllowedHosts" . | quote }}
 - name: ROS_ENABLED_PLUGINS
   value: {{ .Values.ros.api.enabledPlugins | default "" | quote }}
 - name: ROS_DISABLED_PLUGINS

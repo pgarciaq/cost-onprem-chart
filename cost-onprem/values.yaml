@@ -60,9 +60,20 @@ ros:
   # PostgreSQL connection pool (pgxpool max per ROS process).
   # Each ROS pod (api, processor, recommendationPoller, housekeeper, partitionCleaner)
   # opens its own pool. Budget: total_ros_conns = dbMaxConns × num_ros_pods.
-  # Bundled PostgreSQL defaults to max_connections=100; reserve headroom for Koku,
-  # RBAC, Kruize, and admin sessions. Default 5 × ~5 pods ≈ 25 ROS connections.
+  # See database.postgresqlConfiguration connection budget comment block below.
   dbMaxConns: 5
+
+  # Comma-separated hostnames allowed in presigned CSV URLs (ROS_CSV_ALLOWED_HOSTS).
+  # Empty string auto-derives from objectStorage.endpoint (recommended for on-prem).
+  csvAllowedHosts: ""
+
+  # Internal endpoint authentication for POST /internal/tags/* (TokenReview).
+  # When enabled (default), only service accounts listed in allowedServiceAccounts
+  # may call tag sync endpoints. Disable only for local dev without projected SA tokens.
+  internalAuth:
+    enabled: true
+    # Empty string defaults to costManagement.serviceAccount.name (Koku worker SA).
+    allowedServiceAccounts: ""
 
   # Raw usage sample retention for boxplot/digest plot lookback (days).
   # Digests use ROS_RETENTION_MONTHS (default 6 months) via the processor retention sweep.
@@ -112,21 +123,23 @@ ros:
     replicaCount: 1
 
     # Horizontal Pod Autoscaler (requires cluster metrics-server and CPU requests on pods).
-    # Connection budget: maxReplicas × ros.dbMaxConns must fit within PostgreSQL max_connections
-    # (default ros.dbMaxConns=5, maxReplicas=4 → up to 20 API connections; reserve headroom
-    # for processor, poller, housekeeper, Koku, RBAC, and admin sessions).
+    # Connection budget: maxReplicas × ros.dbMaxConns must fit within PostgreSQL max_connections.
+    # With defaults (dbMaxConns=5, maxReplicas=4) ROS API uses up to 20 connections — see
+    # database.postgresqlConfiguration comment block for the full connection budget.
     autoscaling:
       enabled: false  # Disabled by default; enable in production
       minReplicas: 1
-      maxReplicas: 4
+      maxReplicas: 4  # Cap: 4 × dbMaxConns(5) = 20 API connections; lower if using external DBaaS
       targetCPUUtilizationPercentage: 70
       # targetMemoryUtilizationPercentage: 80  # Optional
 
     # Tag filtering enabled by default; filterable keys are gated in Koku Settings > Tags.
-    # On-prem uses shared PostgreSQL (tagsSource: db); push sync stays disabled.
+    # tagsSource: api (default) — Koku pushes enabled tags to ROS via HTTP POST /internal/tags/sync.
+    # tagsSource: db (advanced) — ROS reads tag tables directly from the Koku PostgreSQL database;
+    #   requires ros_user grants on Koku tenant schemas (see koku-schema-grants hook job).
     tagsEnabled: true
-    tagsSource: db
-    # Comma-separated K8s SA names allowed to call POST /internal/tags/sync (api mode only).
+    tagsSource: api
+    # Deprecated: prefer ros.internalAuth.allowedServiceAccounts (kept for backward compatibility).
     tagsAllowedServiceAccounts: ""
     # Dev-only static bearer when projected SA token is unavailable (must match Koku if set).
     tagsDevToken: ""
@@ -769,12 +782,25 @@ database:
 
   # PostgreSQL server configuration appended to postgresql.conf via the sclorg postgresql-cfg/ hook.
   # Tune memory-related settings together with database.resources.limits.memory.
-  # Connection budget: sum of all app pools (ROS, Koku, RBAC, Kruize) must stay below max_connections.
+  #
+  # Connection budget (with max_connections=200):
+  # - ROS API: dbMaxConns (5) × HPA maxReplicas (4) = 20
+  # - ROS processor: 5
+  # - ROS housekeeper: 2
+  # - Koku workers: ~20
+  # - Koku server: ~10
+  # - RBAC: ~5
+  # - Admin/migrations: ~5
+  # - Headroom: ~133
+  # Total estimated: ~67 of 200
+  #
+  # If using external PostgreSQL (DBaaS), ensure max_connections >= 200
+  # and adjust dbMaxConns/HPA accordingly.
   postgresqlConfiguration:
     shared_buffers: "128MB"       # Recommend 25% of container memory; 1-2GB for production
     work_mem: "4MB"               # Recommend 16-32MB for complex ROS aggregation queries
     effective_cache_size: "384MB" # Recommend ~75% of container memory
-    max_connections: "100"        # Ensure sum of all app pools fits; see D-2 connection budgeting
+    max_connections: "200"        # Ensure sum of all app pools fits; see connection budget above
     maintenance_work_mem: "64MB"  # Recommend 128-256MB for production vacuum/reindex
     random_page_cost: "1.1"       # SSD-optimized (default 4.0 assumes spinning disk)
     # Autovacuum (D-3 sets per-table overrides; these are server-wide defaults)
@@ -796,8 +822,8 @@ database:
     # Server connection settings
     host: internal  # Use "internal" for built-in StatefulSet
     port: 5432
-    # Bundled PostgreSQL uses the image default max_connections=100. Size ros.dbMaxConns
-    # and replica counts so ROS + Koku + RBAC + Kruize stay below that budget.
+    # Bundled PostgreSQL max_connections is set via database.postgresqlConfiguration (default 200).
+    # Size ros.dbMaxConns and replica counts so ROS + Koku + RBAC + Kruize stay below that budget.
     # adminUser removed - stored in cost-onprem-db-credentials secret (key: postgres-user)
     # adminPassword removed - stored in cost-onprem-db-credentials secret (key: postgres-password)
     sslMode: disable
@@ -1293,6 +1319,10 @@ ui:
 # -----------------------------------------------------------------------------
 # Network Configuration
 # -----------------------------------------------------------------------------
+# Kubernetes NetworkPolicies restrict ingress to internal-only services (e.g. masu AllowAny endpoints).
+networkPolicies:
+  enabled: true
+
 # Service type for all services
 service:
   type: ClusterIP
