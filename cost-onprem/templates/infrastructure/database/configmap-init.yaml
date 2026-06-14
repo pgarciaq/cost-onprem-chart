@@ -112,7 +112,7 @@ data:
     GRANT ALL PRIVILEGES ON DATABASE {{ .Values.database.koku.name }} TO $KOKU_USER;
     ALTER DATABASE {{ .Values.database.koku.name }} OWNER TO $KOKU_USER;
 
-    -- ROS read access to Koku database (tag filtering with ROS_TAGS_SOURCE=db)
+    -- ROS read access to Koku database (only required when ros.api.tagsSource=db)
     GRANT CONNECT ON DATABASE {{ .Values.database.koku.name }} TO $ROS_USER;
 
     -- Enable pg_stat_statements extension on koku database
