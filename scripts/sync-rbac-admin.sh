@@ -15,6 +15,18 @@
 
 set -euo pipefail
 
+# Strip "org" prefix from org_id if present (prevents the "orgorg" bug).
+# Koku prepends "org" to create the tenant schema, so the JWT claim must
+# contain the bare number (e.g. "1234567", not "org1234567").
+normalize_org_id() {
+  local raw="$1"
+  if [[ "$raw" =~ ^org([0-9]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "$raw"
+  fi
+}
+
 NAMESPACE="${NAMESPACE:-cost-onprem}"
 VALUES_FILE=""
 USERNAME=""
@@ -34,7 +46,7 @@ while [[ $# -gt 0 ]]; do
       echo "When -f is provided, the admin identity is read from the first orgAdmin:true"
       echo "entry in jwtAuth.realmUsers. CLI flags override values-file fields."
       echo ""
-      echo "Without -f, defaults to: username=admin, org-id=org1234567, account-number=7890123"
+      echo "Without -f, defaults to: username=admin, org-id=1234567, account-number=7890123"
       exit 0
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -65,7 +77,7 @@ else:
     exit 1
   fi
   USERNAME="${USERNAME:-$(echo "$admin_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('username','admin'))")}"
-  ORG_ID="${ORG_ID:-$(echo "$admin_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('orgId','org1234567'))")}"
+  ORG_ID="${ORG_ID:-$(echo "$admin_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('orgId','1234567'))")}"
   ACCOUNT_NUMBER="${ACCOUNT_NUMBER:-$(echo "$admin_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('accountNumber','7890123'))")}"
 elif [ -n "$VALUES_FILE" ]; then
   echo "ERROR: Values file not found: $VALUES_FILE"
@@ -73,7 +85,7 @@ elif [ -n "$VALUES_FILE" ]; then
 fi
 
 USERNAME="${USERNAME:-admin}"
-ORG_ID="${ORG_ID:-org1234567}"
+ORG_ID="$(normalize_org_id "${ORG_ID:-1234567}")"
 ACCOUNT_NUMBER="${ACCOUNT_NUMBER:-7890123}"
 
 echo "=== RBAC Admin User Sync ==="

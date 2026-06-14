@@ -181,7 +181,7 @@ user exists, the template fails with an actionable error.
   {{- end -}}
 {{- end -}}
 {{- if not $found -}}
-  {{- "org1234567" -}}
+  {{- "1234567" -}}
 {{- end -}}
 {{- end -}}
 

@@ -928,7 +928,7 @@ helm upgrade cost-onprem ./cost-onprem -n cost-onprem \
   --set rbac.bootstrapAdmin.enabled=true
 ```
 
-The defaults (`username=admin`, `orgId=org1234567`, `accountNumber=7890123`) match the user created by `deploy-rhbk.sh`. Override them if your Keycloak user has different attributes:
+The defaults (`username=admin`, `orgId=1234567`, `accountNumber=7890123`) match the user created by `deploy-rhbk.sh`. Override them if your Keycloak user has different attributes:
 
 ```bash
 helm upgrade cost-onprem ./cost-onprem -n cost-onprem \

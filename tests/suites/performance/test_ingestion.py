@@ -268,7 +268,7 @@ class TestIngestionThroughput:
                 koku_api_url,
                 rh_identity_header,
                 cluster_id,
-                "org1234567",
+                "1234567",
                 source_name,
             )
         
@@ -376,7 +376,7 @@ class TestIngestionThroughput:
                 koku_api_url,
                 rh_identity_header,
                 cluster_id,
-                "org1234567",
+                "1234567",
                 source_name,
             )
         
@@ -513,7 +513,7 @@ class TestIngestionThroughput:
                     koku_api_url,
                     rh_identity_header,
                     cluster_id,
-                    "org1234567",
+                    "1234567",
                     source_name,
                 )
                 
@@ -640,7 +640,7 @@ class TestIngestionThroughput:
                 koku_api_url,
                 rh_identity_header,
                 cluster_id,
-                "org1234567",
+                "1234567",
                 source_name,
             )
         
@@ -798,7 +798,7 @@ class TestIngestionThroughput:
             koku_api_url,
             rh_identity_header,
             cluster_id,
-            "org1234567",
+            "1234567",
             source_name,
         )
         
@@ -924,7 +924,7 @@ class TestIngestionThroughput:
                 koku_api_url,
                 rh_identity_header,
                 cluster_id,
-                "org1234567",
+                "1234567",
                 source_name,
             )
             

@@ -74,3 +74,16 @@ class TestJWTTokenAcquisition:
 
         assert "exp" in payload, "Token missing 'exp' claim"
         assert "iss" in payload, "Token missing 'iss' claim"
+
+    def test_keycloak_org_id_has_no_org_prefix(self, keycloak_config):
+        """Regression test: org_id in JWT must be bare number, not prefixed with 'org'."""
+        from conftest import decode_jwt_payload, obtain_jwt_token
+
+        token = obtain_jwt_token(keycloak_config)
+        claims = decode_jwt_payload(token.access_token)
+        org_id = claims.get("org_id", "")
+        assert not org_id.startswith("org"), (
+            f"org_id in JWT is '{org_id}' — must be bare number without 'org' prefix. "
+            f"Koku prepends 'org' to create the schema name, so 'org1234567' becomes 'orgorg1234567'. "
+            f"Fix the Keycloak client mapper in deploy-rhbk.sh."
+        )

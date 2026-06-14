@@ -23,7 +23,7 @@ generators:
                     full_period: 2
                   mem_usage_gig:
                     full_period: 3
-                  labels: label_ros:ros_A11
+                  labels: label_ros:ros_A11|label_environment:production|label_team:platform
                 - pod:
                   pod_name: pod-ros-A12
                   workload: deployment
@@ -36,7 +36,7 @@ generators:
                     full_period: 0.5
                   mem_usage_gig:
                     full_period: 1
-                  labels: label_ros:ros_A12
+                  labels: label_ros:ros_A12|label_environment:staging|label_team:platform
             project-ros-A2:
               namespace_labels: label_environment:staging|label_team:platform
               pods:
@@ -52,7 +52,7 @@ generators:
                     full_period: 3
                   mem_usage_gig:
                     full_period: 2
-                  labels: label_ros:ros_A21
+                  labels: label_ros:ros_A21|label_environment:staging|label_team:platform
             project-ros-idle:
               namespace_labels: label_environment:development|label_team:idle
               pods:
@@ -68,7 +68,7 @@ generators:
                     full_period: 0.01
                   mem_usage_gig:
                     full_period: 0.05
-                  labels: label_ros:ros_idle1
+                  labels: label_ros:ros_idle1|label_environment:development|label_team:idle
             project-ros-oom:
               namespace_labels: label_environment:production|label_team:oom
               pods:
@@ -85,7 +85,7 @@ generators:
                   mem_usage_gig:
                     full_period: 6
                   oom_count: 5
-                  labels: label_ros:ros_oom1
+                  labels: label_ros:ros_oom1|label_environment:production|label_team:oom
         - node:
           node_name: node-ros-B
           cpu_cores: 20
@@ -107,7 +107,7 @@ generators:
                     full_period: 5
                   mem_usage_gig:
                     full_period: 1
-                  labels: label_ros:ros_B11
+                  labels: label_ros:ros_B11|label_environment:production|label_team:batch
             project-ros-B2:
               namespace_labels: label_environment:qa|label_team:batch
               pods:
@@ -123,4 +123,4 @@ generators:
                     full_period: 3
                   mem_usage_gig:
                     full_period: 3
-                  labels: label_ros:ros_B21
+                  labels: label_ros:ros_B21|label_environment:qa|label_team:batch

@@ -47,8 +47,8 @@ graph TB
 > **⚠️ Important: Dual org_id Placement**
 >
 > The X-Rh-Identity header includes `org_id` in **two locations**:
-> 1. **Top-level**: `{"org_id": "org1234567", ...}` - Workaround for Koku dev_middleware bug
-> 2. **Inside identity**: `{"identity": {"org_id": "org1234567", ...}}` - Correct location per Red Hat schema
+> 1. **Top-level**: `{"org_id": "1234567", ...}` - Workaround for Koku dev_middleware bug
+> 2. **Inside identity**: `{"identity": {"org_id": "1234567", ...}}` - Correct location per Red Hat schema
 >
 > This dual placement is required because Koku's `dev_middleware.py` (line 63) incorrectly reads
 > `identity_header.get("org_id")` instead of `identity_header.get("identity", {}).get("org_id")`.
@@ -150,7 +150,7 @@ To create a user that can access Cost Management UI, you must configure the foll
 
 | Attribute | Type | Description | Example |
 |-----------|------|-------------|---------|
-| `org_id` | String | Tenant identifier (maps to database schema) | `org1234567` |
+| `org_id` | String | Tenant identifier (bare org number; Koku prepends `org` for the DB schema) | `1234567` |
 | `account_number` | String | Customer account identifier | `7890123` |
 
 > **Note**: The `access` attribute is **NOT required** when using ENHANCED_ORG_ADMIN mode.
@@ -165,7 +165,7 @@ To create a user that can access Cost Management UI, you must configure the foll
 
    | Key | Value |
    |-----|-------|
-   | `org_id` | `org1234567` |
+   | `org_id` | `1234567` |
    | `account_number` | `7890123` |
 
 5. Go to **Credentials** tab and set a password
@@ -185,14 +185,15 @@ curl -X POST "$KEYCLOAK_URL/admin/realms/kubernetes/users" \
     "firstName": "Cost",
     "lastName": "User",
     "attributes": {
-      "org_id": ["org1234567"],
+      "org_id": ["1234567"],
       "account_number": ["7890123"]
     }
   }'
 ```
 
-> **Note**: The `org_id` currently requires the `org` prefix (e.g., `org1234567` instead of `1234567`)
-> as a workaround for a Koku schema naming bug. This will be addressed in a future release.
+> **Important**: The `org_id` must be the **bare org number** (e.g., `1234567`), **not** prefixed with `org`.
+> Koku prepends `org` to form the tenant schema name (`org1234567`). If Keycloak stores `org1234567`,
+> the schema becomes `orgorg1234567` and all API calls fail.
 
 ### How org_id and account_number are Extracted (Technical Details)
 
@@ -1194,9 +1195,9 @@ ENHANCED_ORG_ADMIN: "True"  # Bypass RBAC for org admins
 
 ```json
 {
-  "org_id": "org1234567",              
+  "org_id": "1234567",              
   "identity": {
-    "org_id": "org1234567",            
+    "org_id": "1234567",            
     "account_number": "7890123",
     "type": "User",
     "user": {

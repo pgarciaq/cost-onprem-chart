@@ -93,7 +93,7 @@ The Envoy Lua filter constructs the `X-Rh-Identity` header from JWT claims:
 > top level instead of `identity.org_id`. See [Part 6: Technical Notes](keycloak-jwt-authentication-setup.md#part-6-technical-notes) for details.
 
 **Required JWT Claims:**
-- `org_id`: Organization ID (e.g., `org1234567`)
+- `org_id`: Organization ID (bare number, e.g., `1234567`; Koku creates schema `org1234567`)
 - `account_number`: Account number (e.g., `7890123`)
 - `preferred_username`: Username for logging
 - `access`: JSON object defining resource-level permissions (see [Keycloak JWT Setup](keycloak-jwt-authentication-setup.md))
