@@ -156,6 +156,11 @@ spec:
             matchLabels:
               app.kubernetes.io/instance: {{ .Release.Name }}
               app.kubernetes.io/component: gateway
+        # Koku Celery workers push tags and trigger savings recalc via internal endpoints
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: cost-worker
         {{- if .Values.ui }}
         # Allow traffic from UI pod (direct proxy with X-Rh-Identity injection)
         - podSelector:
