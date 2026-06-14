@@ -10,7 +10,11 @@ Uses ros.csvAllowedHosts when set; otherwise derives from objectStorage.endpoint
 {{- if .Values.ros.csvAllowedHosts -}}
 {{- .Values.ros.csvAllowedHosts -}}
 {{- else -}}
-{{- .Values.objectStorage.endpoint -}}
+{{- $endpoint := .Values.objectStorage.endpoint -}}
+{{- $endpoint = trimPrefix "https://" $endpoint -}}
+{{- $endpoint = trimPrefix "http://" $endpoint -}}
+{{- $endpoint = regexReplaceAll ":[0-9]+$" $endpoint "" -}}
+{{- $endpoint -}}
 {{- end -}}
 {{- end -}}
 
