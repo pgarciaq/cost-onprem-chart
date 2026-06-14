@@ -37,7 +37,7 @@ class TestROSSmokePerformance:
         if not auth_header:
             pytest.skip("Could not obtain fresh JWT token")
 
-        url = f"{get_recommendations_endpoint(ros_api_url)}/containers"
+        url = get_recommendations_endpoint(ros_api_url)
         start = time.monotonic()
         response = http_session.get(
             url,
