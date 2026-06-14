@@ -15,6 +15,31 @@ The chart deploys a single unified PostgreSQL 16 instance (`registry.redhat.io/r
 
 All services share one PVC and one set of PostgreSQL memory/connection limits. Tune `database.resources`, `database.storage.size`, and `database.postgresqlConfiguration` together.
 
+## Database Requirements (Connection Budget)
+
+The chart default `max_connections` is **200**. Application pools must stay below this limit.
+
+| Component | Connections (default config) |
+|-----------|------------------------------|
+| ROS API | `ros.dbMaxConns` (5) × HPA `maxReplicas` (4) = **20** |
+| ROS processor | **5** |
+| ROS housekeeper / poller / cleaner | **~7** |
+| Koku workers (Celery) | **~20** |
+| Koku API / masu | **~10** |
+| RBAC | **~5** |
+| Admin / migrations | **~5** |
+| **Estimated total** | **~67 of 200** |
+| **Headroom** | **~133** |
+
+If using **external PostgreSQL (DBaaS)**:
+
+1. Set `database.deploy: false` and point `database.server.host` at your instance.
+2. Ensure `max_connections >= 200` (or raise it to match your fleet size).
+3. Lower `ros.api.autoscaling.maxReplicas` and/or `ros.dbMaxConns` if your DBaaS connection cap is lower.
+4. Tag sync uses HTTP push by default (`ros.api.tagsSource: api`); direct Koku DB grants are only needed when `tagsSource: db`.
+
+See `cost-onprem/values.yaml` (`database.postgresqlConfiguration` comment block) for the authoritative budget notes.
+
 ## Helm Values
 
 | Value | Purpose |
@@ -68,7 +93,7 @@ Choose a profile based on monitored container count (ROS workloads) and retentio
 
 | Fleet size | Container memory | PVC size | `shared_buffers` | `work_mem` | `max_connections` |
 |------------|------------------|----------|------------------|------------|-------------------|
-| Demo (<1k) | 512Mi | 30Gi | 128MB | 4MB | 100 |
+| Demo (<1k) | 512Mi | 30Gi | 128MB | 4MB | 200 |
 | Small (1–5k) | 2Gi | 50Gi | 512MB | 16MB | 150 |
 | Medium (5–15k) | 4Gi | 100Gi | 1GB | 32MB | 200 |
 | Large (15k+) | 8Gi+ | 200Gi+ | 2GB | 64MB | 300+ |
@@ -79,7 +104,7 @@ Choose a profile based on monitored container count (ROS workloads) and retentio
 - **`effective_cache_size`**: ~75% of container memory limit
 - **`work_mem`**: Increase when ROS list/aggregation queries spill to disk or time out; each concurrent sort/hash operation can allocate up to `work_mem`
 - **`maintenance_work_mem`**: Increase for faster `VACUUM`/`CREATE INDEX` on large partitioned tables
-- **`max_connections`**: Must exceed the sum of all application connection pools (ROS API HPA × `ros.dbMaxConns`, processor, poller, housekeeper, Koku Gunicorn workers, Celery, RBAC, Kruize). See connection budgeting (D-2).
+- **`max_connections`**: Must exceed the sum of all application connection pools (ROS API HPA × `ros.dbMaxConns`, processor, poller, housekeeper, Koku Gunicorn workers, Celery, RBAC, Kruize). See [Database Requirements (Connection Budget)](#database-requirements-connection-budget).
 - **`random_page_cost`**: Use `1.1` on SSD/NVMe (Ceph RBD, local SSD); keep default `4.0` only on spinning disks
 
 ## Sample Retention Impact (E-2)

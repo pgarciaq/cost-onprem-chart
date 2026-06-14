@@ -18,6 +18,7 @@ Complete Helm chart for deploying the full Cost Management stack with OCP cost a
 
 **📖 Documentation:**
 - **[Cost Management Installation Guide](docs/operations/cost-management-installation.md)** - Complete deployment guide
+- **[Database Tuning & Connection Budget](docs/operations/database-tuning.md)** - PostgreSQL sizing and `max_connections` planning
 - **Prerequisites**: OpenShift 4.18+, S3-compatible object storage (ODF, AWS S3, or other), Kafka/AMQ Streams
 - **Architecture**: Single unified chart with all components
 - **E2E Testing**: Automated validation with `./scripts/run-pytest.sh` (pytest-based test suite)
