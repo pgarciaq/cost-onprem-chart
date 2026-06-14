@@ -303,3 +303,72 @@ class TestDatabasePostgreSQLConfiguration:
         assert "memory: 2Gi" in db_section
         assert "memory: 4Gi" in db_section
         assert "storage: 100Gi" in db_section
+
+
+@pytest.mark.helm
+@pytest.mark.component
+class TestSecurityEnvVars:
+    """Tests for security-critical environment variables in rendered templates."""
+
+    def test_koku_worker_sets_ros_tags_source_api(self, chart_path: str):
+        """Koku Celery workers must push tags when ros.api.tagsSource is api (default)."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        worker_section = _find_helm_document(output, kind="Deployment", component="cost-worker")
+        assert worker_section, "cost-worker Deployment not found"
+        assert "name: ROS_TAGS_SOURCE" in worker_section
+        assert 'value: "api"' in worker_section
+        assert "name: ROS_TAGS_ENABLED" in worker_section
+        assert 'value: "true"' in worker_section
+
+    def test_ros_processor_sets_csv_allowed_hosts(self, chart_path: str):
+        """ros-processor must have a non-empty ROS_CSV_ALLOWED_HOSTS allowlist."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        section = _find_helm_document(output, kind="Deployment", component="ros-processor")
+        assert section, "ros-processor Deployment not found"
+        assert "name: ROS_CSV_ALLOWED_HOSTS" in section
+        # Default endpoint hostname (no scheme/port)
+        assert "s3.openshift-storage.svc.cluster.local" in section
+
+    def test_ros_processor_normalizes_csv_allowed_hosts_from_url_endpoint(self, chart_path: str):
+        """CSV allowlist auto-derivation strips scheme and port from objectStorage.endpoint."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "objectStorage.endpoint": "https://s3.example.com:443",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, "Template rendering failed"
+
+        section = _find_helm_document(output, kind="Deployment", component="ros-processor")
+        assert section, "ros-processor Deployment not found"
+        assert "name: ROS_CSV_ALLOWED_HOSTS" in section
+        assert "s3.example.com" in section
+        assert "https://" not in section.split("ROS_CSV_ALLOWED_HOSTS")[1].split("name:")[0]
+
+    def test_ros_api_sets_tags_allowed_service_accounts(self, chart_path: str):
+        """ros-api must allowlist Koku service account for internal tag sync."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        section = _find_helm_document(output, kind="Deployment", component="ros-api")
+        assert section, "ros-api Deployment not found"
+        assert "name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS" in section
+        assert "koku" in section
+
+    def test_masu_networkpolicy_allows_ros_api(self, chart_path: str):
+        """masu NetworkPolicy must allow ingress from ros-api for effective_rates calls."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "networkPolicies.enabled": "true",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, "Template rendering failed"
+
+        np_section = _find_helm_document(
+            output, kind="NetworkPolicy", name_contains="masu-access"
+        )
+        assert np_section, "masu-access NetworkPolicy not found"
+        assert "app.kubernetes.io/component: ros-api" in np_section
