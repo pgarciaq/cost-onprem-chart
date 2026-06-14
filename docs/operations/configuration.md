@@ -489,7 +489,7 @@ database:
     shared_buffers: "128MB"
     work_mem: "4MB"
     effective_cache_size: "384MB"
-    max_connections: "100"
+    max_connections: "200"  # See docs/operations/database-tuning.md for connection budget
   server:
     host: internal
     port: 5432
