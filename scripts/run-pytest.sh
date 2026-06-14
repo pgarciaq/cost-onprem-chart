@@ -342,7 +342,8 @@ run_pytest() {
     return $exit_code
 }
 
-# Default CI excludes performance and extended unless --extended/--all is set.
+# Default CI excludes full performance suite and extended unless --extended/--all is set.
+# smoke_perf tests use the smoke_perf marker (not performance) and always run in default CI.
 default_marker_exclusions() {
     local exclusions="not performance"
     if [[ "$include_extended" != "true" && "$run_all" != "true" ]]; then
