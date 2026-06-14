@@ -401,6 +401,13 @@ Common environment variables for Koku API and Celery
 # ROS-OCP savings recalculation callback (cost model worker → ros-api)
 - name: ROS_OCP_BACKEND_URL
   value: {{ .Values.costManagement.rosIntegration.ocpBackendUrl | default (printf "http://%s-ros-api:%v" (include "cost-onprem.fullname" .) .Values.ros.api.port) | quote }}
+{{- if eq (.Values.ros.api.tagsSource | default "api") "api" }}
+# Koku → ROS tag push (masu ros_tag_sync) and internal callbacks require api mode
+- name: ROS_TAGS_ENABLED
+  value: "true"
+- name: ROS_TAGS_SOURCE
+  value: "api"
+{{- end }}
 {{- if .Values.costManagement.rosIntegration.apiHost }}
 - name: ROS_API_HOST
   value: {{ .Values.costManagement.rosIntegration.apiHost | quote }}
