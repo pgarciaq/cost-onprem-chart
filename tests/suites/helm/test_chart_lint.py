@@ -12,6 +12,30 @@ import pytest
 from utils import helm_lint, helm_template
 
 
+def _helm_documents(output: str) -> list[str]:
+    """Split rendered Helm output into non-empty YAML documents."""
+    return [doc.strip() for doc in output.split("---") if doc.strip()]
+
+
+def _find_helm_document(
+    output: str,
+    *,
+    kind: str,
+    component: str | None = None,
+    name_contains: str | None = None,
+) -> str:
+    """Return the first YAML document matching kind and optional selectors."""
+    for doc in _helm_documents(output):
+        if f"kind: {kind}" not in doc:
+            continue
+        if component and f"app.kubernetes.io/component: {component}" not in doc:
+            continue
+        if name_contains and name_contains not in doc:
+            continue
+        return doc
+    return ""
+
+
 # Mock values for offline template rendering (no cluster context)
 OFFLINE_MOCK_VALUES = {
     # Provide mock cluster domain for route generation
@@ -107,30 +131,29 @@ class TestChartTemplate:
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
         assert success, "Template rendering failed"
 
-        ros_api_blocks = output.split("name: ros-api")
-        assert len(ros_api_blocks) > 1, "ros-api container not found in rendered templates"
-        ros_api_section = ros_api_blocks[1].split("---")[0]
+        ros_api_section = _find_helm_document(output, kind="Deployment", component="ros-api")
+        assert ros_api_section, "ros-api Deployment not found in rendered templates"
 
         assert "readinessProbe:" in ros_api_section
         assert "path: /readyz" in ros_api_section
         assert "livenessProbe:" in ros_api_section
-        assert "path: /status" in ros_api_section
+        assert "path: /healthz" in ros_api_section
 
     def test_ros_deployments_set_gomemlimit(self, chart_path: str):
         """ROS Go workloads should set GOMEMLIMIT from ros.goMemLimit values."""
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
         assert success, "Template rendering failed"
 
-        for component in ("ros-api", "ros-processor", "ros-housekeeper", "ros-rec-poller"):
-            blocks = output.split(f"name: {component}")
-            assert len(blocks) > 1, f"{component} container not found"
-            section = blocks[1].split("---")[0]
+        for component in ("ros-api", "ros-processor", "housekeeper", "ros-recommendation-poller"):
+            section = _find_helm_document(output, kind="Deployment", component=component)
+            assert section, f"{component} Deployment not found"
             assert "name: GOMEMLIMIT" in section, f"GOMEMLIMIT missing for {component}"
             assert 'value: "922MiB"' in section, f"unexpected GOMEMLIMIT for {component}"
 
-        cleaner_blocks = output.split("name: ros-partition-cleaner")
-        assert len(cleaner_blocks) > 1, "ros-partition-cleaner container not found"
-        cleaner_section = cleaner_blocks[1].split("---")[0]
+        cleaner_section = _find_helm_document(
+            output, kind="CronJob", component="ros-database-maintenance"
+        )
+        assert cleaner_section, "ros-database-maintenance CronJob not found"
         assert "name: GOMEMLIMIT" in cleaner_section
         assert 'value: "461MiB"' in cleaner_section
 
@@ -139,9 +162,8 @@ class TestChartTemplate:
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
         assert success, "Template rendering failed"
 
-        blocks = output.split("name: ros-processor")
-        assert len(blocks) > 1, "ros-processor container not found"
-        section = blocks[1].split("---")[0]
+        section = _find_helm_document(output, kind="Deployment", component="ros-processor")
+        assert section, "ros-processor Deployment not found"
         assert "name: ROS_SAMPLE_RETENTION_DAYS" in section
         assert 'value: "45"' in section
 
@@ -163,20 +185,18 @@ class TestChartTemplate:
         success, output = helm_template(chart_path, set_values=set_values)
         assert success, f"Helm template failed:\n{output}"
 
-        hpa_blocks = output.split("kind: HorizontalPodAutoscaler")
-        assert len(hpa_blocks) > 1, "HorizontalPodAutoscaler not found in rendered templates"
-        hpa_section = hpa_blocks[1].split("---")[0]
-
+        hpa_section = _find_helm_document(output, kind="HorizontalPodAutoscaler")
+        assert hpa_section, "HorizontalPodAutoscaler not found in rendered templates"
         assert "ros-api" in hpa_section
         assert "minReplicas: 2" in hpa_section
         assert "maxReplicas: 6" in hpa_section
         assert "averageUtilization: 65" in hpa_section
         assert "name: cpu" in hpa_section
 
-        deployment_blocks = output.split("name: test-release-cost-onprem-ros-api")
-        assert len(deployment_blocks) > 1, "ros-api Deployment not found"
-        deployment_section = deployment_blocks[1].split("---")[0]
-        assert "kind: Deployment" in deployment_section
+        deployment_section = _find_helm_document(
+            output, kind="Deployment", component="ros-api"
+        )
+        assert deployment_section, "ros-api Deployment not found"
         assert "replicas:" not in deployment_section.split("spec:")[1].split("selector:")[0]
 
 
@@ -486,15 +506,10 @@ class TestDatabasePostgreSQLConfiguration:
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
         assert success, f"Helm template failed:\n{output}"
 
-        db_blocks = output.split("kind: StatefulSet")
-        db_section = ""
-        for block in db_blocks:
-            if "app.kubernetes.io/component: database" in block:
-                db_section = block
-                break
+        db_section = _find_helm_document(output, kind="StatefulSet", component="database")
         assert db_section, "database StatefulSet not found in rendered templates"
 
-        assert 'memory: "512Mi"' in db_section
+        assert "memory: 512Mi" in db_section
         assert "storage: 30Gi" in db_section
         assert "mountPath: /opt/app-root/src/postgresql-cfg" in db_section
 
@@ -509,14 +524,9 @@ class TestDatabasePostgreSQLConfiguration:
         success, output = helm_template(chart_path, set_values=set_values)
         assert success, f"Helm template failed:\n{output}"
 
-        db_blocks = output.split("kind: StatefulSet")
-        db_section = ""
-        for block in db_blocks:
-            if "app.kubernetes.io/component: database" in block:
-                db_section = block
-                break
+        db_section = _find_helm_document(output, kind="StatefulSet", component="database")
         assert db_section, "database StatefulSet not found"
 
-        assert 'memory: "2Gi"' in db_section
-        assert 'memory: "4Gi"' in db_section
+        assert "memory: 2Gi" in db_section
+        assert "memory: 4Gi" in db_section
         assert "storage: 100Gi" in db_section

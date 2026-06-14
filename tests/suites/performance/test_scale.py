@@ -202,7 +202,7 @@ class TestMultiClusterScale:
                         koku_api_url,
                         rh_identity_header,
                         cluster_id,
-                        "org1234567",
+                        "1234567",
                         source_name,
                     )
                     sources_created.append(source)
@@ -297,7 +297,7 @@ class TestMultiClusterScale:
                             koku_api_url,
                             rh_identity_header,
                             cluster_id,
-                            "org1234567",
+                            "1234567",
                             source_name,
                         )
                         batch_created += 1

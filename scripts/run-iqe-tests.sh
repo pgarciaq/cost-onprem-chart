@@ -18,6 +18,16 @@
 
 set -euo pipefail
 
+# Strip "org" prefix from org_id if present (prevents the "orgorg" bug).
+normalize_org_id() {
+    local raw="$1"
+    if [[ "$raw" =~ ^org([0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "$raw"
+    fi
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -323,7 +333,7 @@ OAUTH_URL="https://${KEYCLOAK_HOST}/realms/kubernetes/protocol/openid-connect"
 # Get org_id and account_number from Keycloak admin user.
 # Canonical source of truth: jwtAuth.realmUsers in values.yaml — these values
 # are provisioned into Keycloak by deploy-rhbk.sh and read back here dynamically.
-ORG_ID="org1234567"
+ORG_ID="1234567"
 ACCOUNT_NUMBER="7890123"
 if [ -n "$KEYCLOAK_HOST" ]; then
     KEYCLOAK_ADMIN_USER=$(kubectl get secret keycloak-initial-admin -n keycloak -o jsonpath='{.data.username}' 2>/dev/null | base64 -d || echo "")
@@ -353,6 +363,7 @@ if [ -n "$KEYCLOAK_HOST" ]; then
         fi
     fi
 fi
+ORG_ID="$(normalize_org_id "$ORG_ID")"
 
 # Ensure the IQE public Keycloak client exists (created via admin API, not realm import).
 # IQE's iqe_jwt OIDCAuth.from_basic() does not send client_secret, so password-grant

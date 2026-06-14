@@ -15,6 +15,16 @@
 
 set -euo pipefail
 
+# Strip "org" prefix from org_id if present (prevents the "orgorg" bug).
+normalize_org_id() {
+    local raw="$1"
+    if [[ "$raw" =~ ^org([0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "$raw"
+    fi
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -530,7 +540,7 @@ extract_cluster_config() {
     export DYNACONF_users__cost_onprem_user__auth__client_id="$DYNACONF_ONPREM_CLIENT_ID"
     export DYNACONF_users__cost_onprem_user__auth__client_secret="$DYNACONF_ONPREM_CLIENT_SECRET"
     # Read org_id and account_number from Keycloak (canonical source: jwtAuth.realmUsers)
-    local iqe_org_id="org1234567"
+    local iqe_org_id="1234567"
     local iqe_acct="7890123"
     local kc_host
     kc_host=$(kubectl get route keycloak -n "$KEYCLOAK_NS" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
@@ -561,6 +571,7 @@ extract_cluster_config() {
             fi
         fi
     fi
+    iqe_org_id="$(normalize_org_id "$iqe_org_id")"
     export DYNACONF_users__cost_onprem_user__identity__account_number="$iqe_acct"
     export DYNACONF_users__cost_onprem_user__identity__org_id="$iqe_org_id"
     

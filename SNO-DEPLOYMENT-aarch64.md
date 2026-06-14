@@ -550,7 +550,7 @@ Expected: **210 passed, 7 skipped** (UI tests deselected with `--no-ui`).
 |-------|-------|
 | Username | `test` |
 | Password | `test123` |
-| org_id | `org1234567` |
+| org_id | `1234567` |
 | account_number | `7890123` |
 
 ### Keycloak Admin
@@ -914,11 +914,11 @@ Realm name: `kubernetes` (NOT `cost-management` or `redhat-external`)
 
 Test user:
 - username: `test`, password: `test123`
-- org_id attribute: `org1234567`
+- org_id attribute: `1234567`
 - account_number attribute: `7890123`
 
 Clients:
-- `cost-management-operator` (service account, hardcoded org_id=org1234567)
+- `cost-management-operator` (service account, hardcoded org_id=1234567)
 - `cost-management-ui` (direct access grants enabled, redirects to UI route)
 
 The full `KeycloakRealmImport` CR is in the `keycloak` namespace:

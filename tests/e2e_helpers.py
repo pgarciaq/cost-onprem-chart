@@ -598,11 +598,14 @@ def get_masu_api_url(helm_release_name: str, namespace: str) -> str:
 
 
 def mirror_koku_ocp_tags_to_ros_db(cluster_config, org_id: str = "1234567") -> bool:
-    """Copy reporting_ocptags_values from costonprem_koku into costonprem_ros.
+    """Copy reporting_ocptags_values and reporting_enabledtagkeys from costonprem_koku into costonprem_ros.
 
     On-prem ROS connects to costonprem_ros only; tag filters read
     org{org_id}.reporting_ocptags_values in that database. Koku populates the
     canonical rows in costonprem_koku after namespace label summarization.
+
+    The ROS DB may not have the tenant schema or tag tables (it uses Go
+    migrations, not Django), so we create them if absent.
     """
     schema = f"org{org_id}"
     db_pod = get_pod_by_label(
@@ -611,25 +614,62 @@ def mirror_koku_ocp_tags_to_ros_db(cluster_config, org_id: str = "1234567") -> b
     if not db_pod:
         return False
 
-    copy_sql = (
+    setup_sql = (
+        f"CREATE SCHEMA IF NOT EXISTS {schema}; "
+        f"CREATE TABLE IF NOT EXISTS {schema}.reporting_ocptags_values ("
+        f"  uuid uuid NOT NULL PRIMARY KEY,"
+        f"  key text NOT NULL,"
+        f"  value text NOT NULL,"
+        f"  cluster_ids text[] NOT NULL DEFAULT '{{}}',"
+        f"  cluster_aliases text[] NOT NULL DEFAULT '{{}}',"
+        f"  namespaces text[] NOT NULL DEFAULT '{{}}',"
+        f"  nodes text[],"
+        f"  UNIQUE (key, value)"
+        f"); "
+        f"CREATE TABLE IF NOT EXISTS {schema}.reporting_enabledtagkeys ("
+        f"  uuid uuid NOT NULL PRIMARY KEY,"
+        f"  key varchar(512) NOT NULL,"
+        f"  enabled boolean NOT NULL DEFAULT true,"
+        f"  provider_type varchar(50) NOT NULL,"
+        f"  UNIQUE (key, provider_type)"
+        f");"
+    )
+    setup_result = exec_in_pod(
+        cluster_config.namespace,
+        db_pod,
+        [
+            "bash", "-lc",
+            f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 -c \"{setup_sql}\"",
+        ],
+        timeout=60,
+    )
+    if setup_result is None or "ERROR" in (setup_result or "").upper():
+        return False
+
+    copy_tags_sql = (
         f"COPY (SELECT uuid, key, value, cluster_ids, cluster_aliases, namespaces, nodes "
         f"FROM {schema}.reporting_ocptags_values) TO STDOUT"
+    )
+    copy_keys_sql = (
+        f"COPY (SELECT uuid, key, enabled, provider_type "
+        f"FROM {schema}.reporting_enabledtagkeys) TO STDOUT"
+    )
+    mirror_cmd = (
+        f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
+        f"-c 'TRUNCATE {schema}.reporting_ocptags_values, {schema}.reporting_enabledtagkeys' && "
+        f"psql -U postgres -d costonprem_koku -c \"{copy_tags_sql}\" | "
+        f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
+        f"-c 'COPY {schema}.reporting_ocptags_values "
+        f"(uuid, key, value, cluster_ids, cluster_aliases, namespaces, nodes) FROM STDIN' && "
+        f"psql -U postgres -d costonprem_koku -c \"{copy_keys_sql}\" | "
+        f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
+        f"-c 'COPY {schema}.reporting_enabledtagkeys "
+        f"(uuid, key, enabled, provider_type) FROM STDIN'"
     )
     result = exec_in_pod(
         cluster_config.namespace,
         db_pod,
-        [
-            "bash",
-            "-lc",
-            (
-                f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
-                f"-c 'TRUNCATE {schema}.reporting_ocptags_values' && "
-                f"psql -U postgres -d costonprem_koku -c \"{copy_sql}\" | "
-                f"psql -U postgres -d costonprem_ros -v ON_ERROR_STOP=1 "
-                f"-c 'COPY {schema}.reporting_ocptags_values "
-                f"(uuid, key, value, cluster_ids, cluster_aliases, namespaces, nodes) FROM STDIN'"
-            ),
-        ],
+        ["bash", "-lc", mirror_cmd],
         timeout=120,
     )
     return result is not None and "ERROR" not in (result or "").upper()
