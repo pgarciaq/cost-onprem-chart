@@ -1130,7 +1130,8 @@ valkey:
 #      and overrides the default endpoint via --set.
 #
 objectStorage:
-  # S3 endpoint hostname (without protocol or port)
+  # S3 endpoint hostname for ROS_CSV_ALLOWED_HOSTS auto-derivation (scheme and port are stripped).
+  # Prefer hostname-only; https://host:443 and host:9000 are normalized to host.
   # Examples:
   #   - ODF NooBaa:    "s3.openshift-storage.svc.cluster.local"
   #   - Direct Ceph:   "rook-ceph-rgw-ocs-storagecluster-cephobjectstore.openshift-storage.svc"
