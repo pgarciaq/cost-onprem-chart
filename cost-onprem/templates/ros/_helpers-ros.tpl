@@ -13,6 +13,10 @@ Uses ros.csvAllowedHosts when set; otherwise derives from objectStorage.endpoint
 {{- $endpoint := .Values.objectStorage.endpoint -}}
 {{- $endpoint = trimPrefix "https://" $endpoint -}}
 {{- $endpoint = trimPrefix "http://" $endpoint -}}
+{{- /* Strip user:pass@ auth prefix (e.g. https://user:pass@host) before hostname extraction. */ -}}
+{{- $endpoint = regexReplaceAll "^[^@]*@" $endpoint "" -}}
+{{- /* Bracketed IPv6 literals like [::1]:443 are uncommon in objectStorage.endpoint; port/path
+     stripping below may not normalize them — prefer hostname-only values in values.yaml. */ -}}
 {{- $endpoint = regexReplaceAll ":[0-9]+$" $endpoint "" -}}
 {{- $endpoint = regexReplaceAll "/.*$" $endpoint "" -}}
 {{- $endpoint -}}

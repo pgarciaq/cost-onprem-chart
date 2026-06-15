@@ -623,17 +623,36 @@ class TestSecurityEnvVars:
         assert "s3.example.com" in section
         assert "s3.example.com/bucket" not in section
 
-    def test_ros_api_sets_tags_allowed_service_accounts(self, chart_path: str):
-        """ros-api must allowlist Koku service account for internal tag sync."""
+    def test_ros_processor_strips_auth_prefix_from_csv_allowed_hosts_endpoint(self, chart_path: str):
+        """CSV allowlist auto-derivation strips user:pass@ auth prefix from objectStorage.endpoint."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "objectStorage.endpoint": "https://user:pass@s3.example.com:9000/bucket",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, "Template rendering failed"
+
+        section = _find_helm_document(output, kind="Deployment", component="ros-processor")
+        assert section, "ros-processor Deployment not found"
+        assert "name: ROS_CSV_ALLOWED_HOSTS" in section
+        assert "s3.example.com" in section
+        assert "user:pass@" not in section
+
+    def test_ros_auth_delegator_clusterrolebinding_when_internal_auth_enabled(self, chart_path: str):
+        """ROS ServiceAccount must bind to system:auth-delegator for TokenReview."""
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
         assert success, "Template rendering failed"
 
-        section = _find_helm_document(output, kind="Deployment", component="ros-api")
-        assert section, "ros-api Deployment not found"
-        assert "name: ROS_TAGS_ALLOWED_SERVICE_ACCOUNTS" in section
-        assert "koku" in section
+        binding = _find_helm_document(
+            output,
+            kind="ClusterRoleBinding",
+            name_contains="ros-auth-delegator",
+        )
+        assert binding, "ROS auth-delegator ClusterRoleBinding not found"
+        assert "name: system:auth-delegator" in binding
+        assert "name: ros-backend" in binding
 
-    def test_masu_networkpolicy_allows_ros_api(self, chart_path: str):
+    def test_ros_api_sets_tags_allowed_service_accounts(self, chart_path: str):
         """masu NetworkPolicy must allow ingress from ros-api for effective_rates calls."""
         set_values = {
             **OFFLINE_MOCK_VALUES,
