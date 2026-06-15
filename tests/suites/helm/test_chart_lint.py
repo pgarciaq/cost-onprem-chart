@@ -579,13 +579,18 @@ class TestSecurityEnvVars:
 
     def test_ros_processor_sets_csv_allowed_hosts(self, chart_path: str):
         """ros-processor must have a non-empty ROS_CSV_ALLOWED_HOSTS allowlist."""
-        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        # Use offline mocks but keep values.yaml default objectStorage.endpoint
+        # (OFFLINE_MOCK_VALUES overrides endpoint to s3.example.com for other tests).
+        set_values = {
+            k: v for k, v in OFFLINE_MOCK_VALUES.items() if k != "objectStorage.endpoint"
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
         assert success, "Template rendering failed"
 
         section = _find_helm_document(output, kind="Deployment", component="ros-processor")
         assert section, "ros-processor Deployment not found"
         assert "name: ROS_CSV_ALLOWED_HOSTS" in section
-        # Default endpoint hostname (no scheme/port)
+        # Default endpoint hostname from values.yaml (no scheme/port)
         assert "s3.openshift-storage.svc.cluster.local" in section
 
     def test_ros_processor_normalizes_csv_allowed_hosts_from_url_endpoint(self, chart_path: str):
