@@ -14,6 +14,7 @@ Uses ros.csvAllowedHosts when set; otherwise derives from objectStorage.endpoint
 {{- $endpoint = trimPrefix "https://" $endpoint -}}
 {{- $endpoint = trimPrefix "http://" $endpoint -}}
 {{- $endpoint = regexReplaceAll ":[0-9]+$" $endpoint "" -}}
+{{- $endpoint = regexReplaceAll "/.*$" $endpoint "" -}}
 {{- $endpoint -}}
 {{- end -}}
 {{- end -}}
