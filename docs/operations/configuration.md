@@ -687,7 +687,7 @@ Each ROS process (API, processor, recommendation poller, housekeeper, partition 
 
 When ROS API autoscaling is enabled (`ros.api.autoscaling.enabled: true`), API pod count can grow to `ros.api.autoscaling.maxReplicas`. Budget API connections as `ros.dbMaxConns × maxReplicas` (default 5 × 4 = 20) plus connections from processor, poller, housekeeper, and partition cleaner.
 
-The bundled PostgreSQL image default is `max_connections=100` (overridable via `database.postgresqlConfiguration.max_connections`). If you scale ROS replicas or raise `ros.dbMaxConns`, increase `max_connections` accordingly. SaaS/console.redhat.com sets `ROS_DB_MAX_CONNS` via app-interface (not this Helm value).
+The bundled PostgreSQL image default is `max_connections=200` (overridable via `database.postgresqlConfiguration.max_connections`). See [database-tuning.md](database-tuning.md) for sizing guidance. If you scale ROS replicas or raise `ros.dbMaxConns`, increase `max_connections` accordingly. SaaS/console.redhat.com sets `ROS_DB_MAX_CONNS` via app-interface (not this Helm value).
 
 > **Removed:** Legacy `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` env vars were never read by ros-ocp-backend and have been removed from chart templates.
 

@@ -322,6 +322,34 @@ class TestSecurityEnvVars:
         assert "name: ROS_TAGS_ENABLED" in worker_section
         assert 'value: "true"' in worker_section
 
+    def test_koku_worker_mounts_ros_sa_token_when_tags_source_api(self, chart_path: str):
+        """Koku workers must mount a projected SA token for ROS internal auth when tagsSource=api."""
+        success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
+        assert success, "Template rendering failed"
+
+        worker_section = _find_helm_document(output, kind="Deployment", component="cost-worker")
+        assert worker_section, "cost-worker Deployment not found"
+        assert "name: ros-sa-token" in worker_section
+        assert "mountPath: /var/run/secrets/ros" in worker_section
+        assert "name: ROS_SA_TOKEN_PATH" in worker_section
+        assert 'value: "/var/run/secrets/ros/token"' in worker_section
+        assert "serviceAccountToken:" in worker_section
+        assert "audience: ros-api" in worker_section
+
+    def test_koku_worker_omits_ros_sa_token_when_tags_source_db(self, chart_path: str):
+        """Projected SA token volume is not mounted when tagsSource=db (advanced shared-DB mode)."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "ros.api.tagsSource": "db",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, "Template rendering failed"
+
+        worker_section = _find_helm_document(output, kind="Deployment", component="cost-worker")
+        assert worker_section, "cost-worker Deployment not found"
+        assert "name: ros-sa-token" not in worker_section
+        assert "name: ROS_SA_TOKEN_PATH" not in worker_section
+
     def test_ros_processor_sets_csv_allowed_hosts(self, chart_path: str):
         """ros-processor must have a non-empty ROS_CSV_ALLOWED_HOSTS allowlist."""
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
@@ -347,6 +375,21 @@ class TestSecurityEnvVars:
         assert "name: ROS_CSV_ALLOWED_HOSTS" in section
         assert "s3.example.com" in section
         assert "https://" not in section.split("ROS_CSV_ALLOWED_HOSTS")[1].split("name:")[0]
+
+    def test_ros_processor_strips_path_from_csv_allowed_hosts_endpoint(self, chart_path: str):
+        """CSV allowlist auto-derivation strips URL path segments from objectStorage.endpoint."""
+        set_values = {
+            **OFFLINE_MOCK_VALUES,
+            "objectStorage.endpoint": "https://s3.example.com/bucket",
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, "Template rendering failed"
+
+        section = _find_helm_document(output, kind="Deployment", component="ros-processor")
+        assert section, "ros-processor Deployment not found"
+        assert "name: ROS_CSV_ALLOWED_HOSTS" in section
+        assert "s3.example.com" in section
+        assert "s3.example.com/bucket" not in section
 
     def test_ros_api_sets_tags_allowed_service_accounts(self, chart_path: str):
         """ros-api must allowlist Koku service account for internal tag sync."""

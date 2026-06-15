@@ -391,6 +391,9 @@ Common environment variables for Koku API and Celery
   value: "true"
 - name: ROS_TAGS_SOURCE
   value: "api"
+# Projected SA token mount path (workers set automountServiceAccountToken: false)
+- name: ROS_SA_TOKEN_PATH
+  value: "/var/run/secrets/ros/token"
 {{- end }}
 {{- if .Values.costManagement.rosIntegration.apiHost }}
 - name: ROS_API_HOST
@@ -441,6 +444,11 @@ Includes tmp mount and combined CA bundle
 - name: combined-ca-bundle
   mountPath: /etc/pki/ca-trust/combined
   readOnly: true
+{{- if eq (.Values.ros.api.tagsSource | default "api") "api" }}
+- name: ros-sa-token
+  mountPath: /var/run/secrets/ros
+  readOnly: true
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -465,6 +473,15 @@ Includes tmp volume and CA bundle volumes
     name: {{ include "cost-onprem.fullname" . }}-service-ca
 - name: combined-ca-bundle
   emptyDir: {}
+{{- if eq (.Values.ros.api.tagsSource | default "api") "api" }}
+- name: ros-sa-token
+  projected:
+    sources:
+    - serviceAccountToken:
+        path: token
+        expirationSeconds: 3600
+        audience: ros-api
+{{- end }}
 {{- end -}}
 
 {{/*
