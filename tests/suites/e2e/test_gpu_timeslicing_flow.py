@@ -6,6 +6,8 @@ Test plan:
   3. Upload via ingress; wait for gpu_container_digests in costonprem_ros.
   4. GET /recommendations/openshift/gpu/timeslicing and assert actionable rows
      when the engine classifies underutilized T4 workloads (notification 36).
+  5. Verify node_gpu_timeslicing_recommendations has persisted rows and the
+     GET .../gpu/timeslicing/history endpoint returns 200.
 
 NISE pins low SM/DRAM via YAML overrides on Tesla T4 (time-slicing-eligible, not
 MIG-first). If the cluster lacks GPU plugin or rates, tests skip with context.
@@ -53,6 +55,35 @@ NOTIF_GPU_TIMESLICING_CANDIDATE = 36
 class GPUTimesliceFlowContext:
     cluster_id: str
     auth: dict[str, str]
+
+
+def _wait_for_node_gpu_timeslicing_recommendations(
+    cluster_config,
+    db_pod: str,
+    cluster_id: str,
+    org_id: str = _UPLOAD_ORG_ID,
+    timeout: int = 420,
+) -> bool:
+    def check():
+        result = execute_db_query(
+            cluster_config.namespace,
+            db_pod,
+            "costonprem_ros",
+            "postgres",
+            f"""
+            SELECT COUNT(*) FROM node_gpu_timeslicing_recommendations
+            WHERE cluster_uuid = '{cluster_id}'
+              AND org_id = '{org_id}'
+            """,
+        )
+        return result is not None and int(result[0][0]) > 0
+
+    return wait_for_condition(
+        check,
+        timeout=timeout,
+        interval=20,
+        description="node_gpu_timeslicing_recommendations population",
+    )
 
 
 def _wait_for_gpu_container_digests(
@@ -276,3 +307,144 @@ class TestContainerGPUTimesliceExtendedFlow:
         assert resp.status_code == 200, resp.text
         for item in resp.json().get("data") or []:
             assert item.get("cluster_uuid") == gpu_timeslice_context.cluster_id
+
+    def test_timeslicing_recommendations_persisted_in_database(
+        self,
+        cluster_config,
+        gpu_timeslice_context: GPUTimesliceFlowContext,
+    ):
+        db_pod = get_pod_by_label(
+            cluster_config.namespace, "app.kubernetes.io/component=database"
+        )
+        if not db_pod:
+            pytest.skip("Database pod not found")
+
+        if not _wait_for_node_gpu_timeslicing_recommendations(
+            cluster_config, db_pod, gpu_timeslice_context.cluster_id
+        ):
+            pytest.skip(
+                "node_gpu_timeslicing_recommendations empty; "
+                "engine may need more observation days or cost rates"
+            )
+
+        result = execute_db_query(
+            cluster_config.namespace,
+            db_pod,
+            "costonprem_ros",
+            "postgres",
+            f"""
+            SELECT COUNT(*) FROM node_gpu_timeslicing_recommendations
+            WHERE cluster_uuid = '{gpu_timeslice_context.cluster_id}'
+              AND org_id = '{_UPLOAD_ORG_ID}'
+            """,
+        )
+        assert result is not None
+        assert int(result[0][0]) >= 1, (
+            "Expected at least one persisted GPU time-slicing recommendation row"
+        )
+
+    def test_timeslicing_history_endpoint(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        gpu_timeslice_context: GPUTimesliceFlowContext,
+    ):
+        list_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing",
+            {"filter[cluster]": gpu_timeslice_context.cluster_id, "limit": 5},
+        )
+        if list_resp.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        assert list_resp.status_code == 200, list_resp.text
+
+        items = list_resp.json().get("data") or []
+        node_name = items[0].get("node_name") if items else "nonexistent-gpu-node"
+
+        history_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing/history",
+            {
+                "cluster_uuid": gpu_timeslice_context.cluster_id,
+                "node_name": node_name,
+            },
+        )
+        if history_resp.status_code == 404:
+            pytest.skip("GPU time-slicing history endpoint not deployed")
+        assert history_resp.status_code == 200, history_resp.text
+
+        body = history_resp.json()
+        assert "meta" in body, body
+        assert "links" in body, body
+        assert "data" in body, body
+        assert isinstance(body["data"], list), body
+
+        if items:
+            assert body["data"], (
+                "Expected history entries when time-slicing list has actionable rows"
+            )
+            entry = body["data"][0]
+            assert entry.get("node_name") == node_name, entry
+            assert entry.get("recorded_at"), entry
+
+    def test_timeslicing_history_endpoint_empty_is_ok(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        gpu_timeslice_context: GPUTimesliceFlowContext,
+    ):
+        history_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing/history",
+            {
+                "cluster_uuid": gpu_timeslice_context.cluster_id,
+                "node_name": "e2e-nonexistent-gpu-node",
+            },
+        )
+        if history_resp.status_code == 404:
+            pytest.skip("GPU time-slicing history endpoint not deployed")
+        assert history_resp.status_code == 200, history_resp.text
+
+        body = history_resp.json()
+        assert body.get("data") == []
+        assert body.get("meta", {}).get("count") == 0
+
+    def test_timeslicing_history_requires_cluster_uuid(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        gpu_timeslice_context: GPUTimesliceFlowContext,
+    ):
+        history_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing/history",
+            {"node_name": "some-node"},
+        )
+        if history_resp.status_code == 404:
+            pytest.skip("GPU time-slicing history endpoint not deployed")
+        assert history_resp.status_code == 400, history_resp.text
+
+    def test_timeslicing_history_requires_node_name(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        gpu_timeslice_context: GPUTimesliceFlowContext,
+    ):
+        history_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing/history",
+            {"cluster_uuid": gpu_timeslice_context.cluster_id},
+        )
+        if history_resp.status_code == 404:
+            pytest.skip("GPU time-slicing history endpoint not deployed")
+        assert history_resp.status_code == 400, history_resp.text
