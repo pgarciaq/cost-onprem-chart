@@ -22,6 +22,8 @@ _DEFAULT_IDLE = {
         "minimum_observation_days": 14,
         "gpu_sm_active_basis_points": 500,
         "gpu_dram_active_basis_points": 500,
+        "zombie_cpu_millicores": 1,
+        "zombie_peak_millicores": 10,
     },
 }
 
