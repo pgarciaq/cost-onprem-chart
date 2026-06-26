@@ -98,7 +98,7 @@ spec:
             - name: postgres-storage
               mountPath: /var/lib/postgresql/data
             - name: init-scripts
-              mountPath: /opt/app-root/src/postgresql-init
+              mountPath: {{ .Values.database.server.initScriptsMountPath | quote }}
               readOnly: true
             {{- if .Values.database.postgresqlConfiguration }}
             - name: pgconfig

@@ -492,8 +492,8 @@ deploy_keycloak() {
         exit 1
     fi
 
-    local KEYCLOAK_HOSTNAME="keycloak-${NAMESPACE}.${CLUSTER_DOMAIN}"
-    echo_info "Keycloak will be accessible at: https://$KEYCLOAK_HOSTNAME"
+    local KEYCLOAK_HOSTNAME="https://keycloak-${NAMESPACE}.${CLUSTER_DOMAIN}"
+    echo_info "Keycloak will be accessible at: $KEYCLOAK_HOSTNAME"
 
     # Check if Keycloak instance already exists
     if oc get keycloak keycloak -n "$NAMESPACE" >/dev/null 2>&1; then
