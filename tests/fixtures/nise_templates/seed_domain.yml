@@ -1,0 +1,44 @@
+---
+# Session seed: Domain (CRD) workload type for COST-7274 validation.
+# Verifies that arbitrary workload_type strings flow through ingestion and
+# appear in ROS container recommendations.
+generators:
+  - OCPGenerator:
+      start_date: last_month
+      end_date: today
+      nodes:
+        - node:
+          node_name: seed-domain-node
+          cpu_cores: 16
+          memory_gig: 64
+          resource_id: 91000010
+          namespaces:
+            seed-weblogic:
+              namespace_labels: label_environment:production|label_team:middleware
+              pods:
+                - pod:
+                  pod_name: seed-wls-admin
+                  workload: domain
+                  cpu_request: 2
+                  mem_request_gig: 4
+                  cpu_limit: 4
+                  mem_limit_gig: 8
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1.2
+                  mem_usage_gig:
+                    full_period: 3.0
+                  labels: label_app:weblogic-admin
+                - pod:
+                  pod_name: seed-wls-managed
+                  workload: domain
+                  cpu_request: 4
+                  mem_request_gig: 8
+                  cpu_limit: 8
+                  mem_limit_gig: 16
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 2.5
+                  mem_usage_gig:
+                    full_period: 6.0
+                  labels: label_app:weblogic-managed
