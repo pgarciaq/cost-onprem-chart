@@ -313,6 +313,22 @@ kubectl logs -n cost-onprem -l app.kubernetes.io/component=ros-processor --tail=
 kubectl logs -n cost-onprem -l app.kubernetes.io/component=ros-optimization --tail=100
 ```
 
+### Check architecture before building images
+
+Before any `podman build` / push / deploy, verify build host and cluster node
+architecture. **SNO does not imply aarch64** — UXSNO is amd64 (Dell R640);
+Apollo SNO is arm64.
+
+```bash
+uname -m
+oc get nodes -o custom-columns=NAME:.metadata.name,ARCH:.status.nodeInfo.architecture
+```
+
+- **amd64 cluster:** native build on x86_64 — no `--platform`
+- **arm64 cluster:** native on aarch64, or `--platform linux/arm64` from x86_64
+
+See `.cursor/rules/aarch64-sno-deployment.mdc` §0 and workspace `AGENTS.md`.
+
 ### Deploy Chart
 ```bash
 # Full deployment + chart tests

@@ -1,13 +1,54 @@
 ---
-description: Hard-won lessons from deploying cost-onprem on aarch64 SNO OpenShift clusters. MUST READ before any aarch64 or SNO deployment.
+description: Hard-won lessons for aarch64/arm64 SNO OpenShift clusters. Check cluster ARCH first — does NOT apply to amd64 clusters (e.g. UXSNO on Dell R640).
 globs: ["**/sno*", "**/arm64*", "**/aarch64*", "scripts/deploy-*.sh", "scripts/install-helm-chart.sh"]
 ---
 
 # aarch64 SNO Deployment — Pitfalls & Fixes
 
-This document catalogs every issue encountered across multiple deployment
-attempts on aarch64 SNO OpenShift clusters. **Read it end-to-end before
-starting any deployment. Every item here caused real wasted time.**
+This document catalogs issues encountered deploying cost-onprem on **aarch64 /
+arm64** SNO OpenShift clusters. **Read it end-to-end before starting an
+aarch64 deployment.**
+
+> **Not every SNO cluster is aarch64.** UXSNO (`uxsno-sno.karmalabs.corp`) runs
+> **amd64** on Dell R640. Apollo SNO is aarch64. Always verify architecture
+> (section 0) before applying anything in this file.
+
+---
+
+## 0. Check Architecture Before Building or Deploying
+
+**Always do this first** — on the build host and on the target cluster. Wrong-arch
+images cause `CrashLoopBackOff`, failed rollouts, or hours lost to slow QEMU
+cross-builds.
+
+```bash
+# Build host (where podman/docker runs)
+uname -m
+
+# Target cluster (after oc login)
+oc get nodes -o custom-columns=NAME:.metadata.name,ARCH:.status.nodeInfo.architecture
+```
+
+| Build host `uname -m` | Cluster `ARCH` | How to build |
+|-----------------------|----------------|--------------|
+| `x86_64` | `amd64` | Native — **no** `--platform` flag |
+| `aarch64` | `arm64` | Native — **no** `--platform` flag |
+| `x86_64` | `arm64` | `--platform linux/arm64` **or** build on an aarch64 hypervisor |
+| `aarch64` | `amd64` | `--platform linux/amd64` **or** build on an x86_64 hypervisor |
+
+**Rules:**
+
+1. Match the **cluster node** architecture, not the hypervisor product name.
+2. Prefer native builds on a host that matches the cluster (fast, reliable).
+3. Do **not** use `--platform linux/arm64` unless the cluster reports `arm64`.
+4. Sections 1–N below apply only when the cluster is **aarch64/arm64**.
+
+**Known lab examples:**
+
+| Cluster | Typical `ARCH` | Hypervisor / notes |
+|---------|----------------|--------------------|
+| UXSNO | `amd64` | Dell R640 — use native x86_64 builds |
+| Apollo SNO | `arm64` | aarch64 — this document applies |
 
 ---
 

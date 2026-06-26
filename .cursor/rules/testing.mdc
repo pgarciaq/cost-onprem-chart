@@ -116,6 +116,9 @@ Key points:
 
 **NEVER run E2E tests against a cluster without first rebuilding and deploying the latest code.** The cluster image may be stale. Before every E2E run:
 
+0. **Verify architecture** (build host + cluster) — see
+   [`aarch64-sno-deployment.mdc` §0](aarch64-sno-deployment.mdc). Do not assume
+   SNO means aarch64; UXSNO is amd64.
 1. Build a new image with a **unique tag** (never reuse tags due to `imagePullPolicy: IfNotPresent`)
 2. Push to the cluster's image registry
 3. Update deployments with `kubectl set image`
@@ -124,12 +127,19 @@ Key points:
 6. THEN run the test suite
 
 ```bash
-# Example workflow (aarch64 SNO)
+# Step 0 — always run first
+uname -m
+oc get nodes -o custom-columns=NAME:.metadata.name,ARCH:.status.nodeInfo.architecture
+
+# Example: amd64 cluster (e.g. UXSNO) — native build, no --platform
 TAG="bh-$(date +%Y%m%d)-v1"
-podman build --platform linux/arm64 -t ros-ocp-backend:${TAG} -f Dockerfile .
+podman build -t ros-ocp-backend:${TAG} -f Dockerfile .
 podman push --tls-verify=false ${REGISTRY}/cost-onprem/ros-ocp-backend:${TAG}
 kubectl set image deployment/cost-onprem-ros-api ros-api=image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend:${TAG} -n cost-onprem
 kubectl rollout status deployment/cost-onprem-ros-api -n cost-onprem --timeout=300s
+
+# Example: arm64/aarch64 cluster only — add --platform linux/arm64 when building on x86_64
+# podman build --platform linux/arm64 -t ros-ocp-backend:${TAG} -f Dockerfile .
 ```
 
 ## IMPORTANT: Do NOT tail logs automatically
