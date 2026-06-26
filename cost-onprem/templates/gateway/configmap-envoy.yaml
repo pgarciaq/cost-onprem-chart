@@ -304,6 +304,22 @@ data:
                       function envoy_on_request(request_handle)
                         -- Wrap entire function in error handler to prevent crashes
                         local success, err = pcall(function()
+                          -- Echo (ROS API) rejects paths with a trailing slash before the query
+                          -- string, e.g. /recommendations/openshift/?limit=5 → 404.
+                          -- Koku API (Django) requires trailing slashes and returns 301 without them,
+                          -- so only strip the slash on paths routed to the ROS API backend.
+                          local path = request_handle:headers():get(":path")
+                          if path then
+                            local is_ros_path = string.match(path, "^/api/cost%-management/v1/recommendations/") ~= nil
+                              or string.match(path, "^/api/cost%-management/v1/openshift/namespace") ~= nil
+                            if is_ros_path then
+                              local normalized = string.gsub(path, "([^/])/%?", "%1?", 1)
+                              if normalized ~= path then
+                                request_handle:headers():replace(":path", normalized)
+                              end
+                            end
+                          end
+
                           -- Get JWT payload from dynamic metadata (set by jwt_authn filter)
                           local metadata = request_handle:streamInfo():dynamicMetadata()
                           local jwt_metadata = metadata:get("envoy.filters.http.jwt_authn")

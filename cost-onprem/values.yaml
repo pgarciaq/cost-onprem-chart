@@ -815,6 +815,10 @@ database:
       # Image entrypoint expects POSTGRESQL_* or POSTGRESQL_ADMIN_PASSWORD; chart supplies
       # the latter. Secret key postgres-user must be the DB superuser name (default: postgres).
 
+    # sclorg/RHEL images: /opt/app-root/src/postgresql-init
+    # docker.io/library/postgres: /docker-entrypoint-initdb.d
+    initScriptsMountPath: /opt/app-root/src/postgresql-init
+
     storage:
       # Deprecated: prefer database.storage.size (kept for backward-compatible --set overrides).
       size: 30Gi
@@ -1179,7 +1183,8 @@ objectStorage:
 # native jwt_authn filter with Lua scripting to extract claims and inject
 # X-Rh-Identity header for backend services.
 jwtAuth:
-  # Envoy proxy configuration (used by centralized gateway)
+  gateway:
+    replicas: 2
   envoy:
     image:
       repository: registry.redhat.io/openshift-service-mesh/proxyv2-rhel9
