@@ -160,7 +160,7 @@ and detail APIs (`GET .../pvcs`, `GET .../pvcs/detail`), including `filter[stora
 `estimated_monthly_savings`, and detail `terms` / `historical_usage`. Requires migration
 **000114** on the ROS database and at least one ingestion cycle with storage usage data.
 
-Deterministic PVC scenarios: `tests/data/nise_templates/ocp_report_pvc_rightsizing.yml`
+Deterministic PVC scenarios: `nise/examples/ros_ocp_e2e/ocp_report_pvc_rightsizing.yml`
 (oversized, near-full, orphaned, healthy PVCs in namespace `pvc-rightsizing`).
 
 ```bash

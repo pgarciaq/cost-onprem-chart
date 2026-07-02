@@ -230,30 +230,34 @@ def ensure_nise_available() -> bool:
     return install_nise()
 
 
-# Path to NISE templates
-# Default: local templates in tests/data/nise_templates (copied from IQE plugin)
-# Override with NISE_TEMPLATES_DIR env var if needed
-NISE_TEMPLATES_DIR = os.environ.get(
-    "NISE_TEMPLATES_DIR",
-    os.path.join(os.path.dirname(__file__), "data", "nise_templates")
-)
+# Path to NISE E2E templates — resolved from the nise package when available,
+# with fallback to local copies.  Override with NISE_TEMPLATES_DIR env var.
+_NISE_TEMPLATES_DIR_OVERRIDE = os.environ.get("NISE_TEMPLATES_DIR")
+
+def _resolve_e2e_templates_dir() -> str:
+    if _NISE_TEMPLATES_DIR_OVERRIDE:
+        return _NISE_TEMPLATES_DIR_OVERRIDE
+    from nise_fixture_paths import get_e2e_templates_dir
+    return str(get_e2e_templates_dir())
+
+NISE_TEMPLATES_DIR = _resolve_e2e_templates_dir()
 
 
 def get_nise_template_path(template_name: str) -> Optional[str]:
     """Get path to a NISE template if available.
-    
+
     Templates are pre-configured NISE static reports for various test scenarios.
-    See tests/data/nise_templates/README.md for available templates.
-    
+    Resolved from the koku-nise package (``nise/examples/ros_ocp_e2e/``).
+
     Args:
         template_name: Name of the template file (e.g., "ocp_report_ros_0.yml")
-        
+
     Returns:
         Full path to template if it exists, None otherwise
     """
     if not os.path.isdir(NISE_TEMPLATES_DIR):
         return None
-    
+
     template_path = os.path.join(NISE_TEMPLATES_DIR, template_name)
     if os.path.isfile(template_path):
         return template_path
@@ -262,13 +266,13 @@ def get_nise_template_path(template_name: str) -> Optional[str]:
 
 def list_nise_templates() -> List[str]:
     """List available NISE templates.
-    
+
     Returns:
         List of template filenames, or empty list if templates not available
     """
     if not os.path.isdir(NISE_TEMPLATES_DIR):
         return []
-    
+
     return [f for f in os.listdir(NISE_TEMPLATES_DIR) if f.endswith(".yml")]
 
 

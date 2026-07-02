@@ -91,8 +91,8 @@ When you run pytest via `run-pytest.sh`, a **session-scoped autouse fixture**
 (`tests/fixtures/data_seeding.py`) runs once before any tests execute. It
 queries the ROS database for row counts and, if any category is below its
 minimum threshold, generates NISE data from templates in
-`tests/fixtures/nise_templates/`, uploads it through ingress, and polls until
-processing completes.
+`nise/examples/ros_ocp_seeding/` (shipped in the koku-nise wheel), uploads it
+through ingress, and polls until processing completes.
 
 | Category | Table | Minimum rows |
 |----------|-------|--------------|

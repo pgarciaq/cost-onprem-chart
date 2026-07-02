@@ -188,10 +188,9 @@ def cost_validation_data(cluster_config, database_config, s3_config, keycloak_co
     - E2E_CLEANUP_AFTER: Run cleanup after tests (default: true)
     - NISE_IQE_TEMPLATE: Use a NISE template instead of default config.
                          Example: "ocp_report_ros_0.yml" for ROS optimization testing
-                         Available templates in tests/data/nise_templates/:
+                         Available templates in nise/examples/ros_ocp_e2e/ (koku-nise package):
                          - ocp_report_ros_0.yml: ROS optimization testing
                          - ocp_report_advanced.yml: Complex multi-node setup
-                         See: tests/data/nise_templates/README.md
     """
     # Check cleanup settings
     cleanup_before = os.environ.get("E2E_CLEANUP_BEFORE", "true").lower() == "true"
