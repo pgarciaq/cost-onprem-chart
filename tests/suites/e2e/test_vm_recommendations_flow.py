@@ -51,7 +51,7 @@ from utils import (
 _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_vm.yml"
 
-# VM names/namespaces from tests/data/nise_templates/ocp_report_vm.yml
+# VM names/namespaces from nise/examples/ros_ocp_e2e/ocp_report_vm.yml
 VM_DUAL_ENGINE = ("web-server-linux-01", "production")
 VM_WITH_GUEST_AGENT = {
     "web-server-linux-01": "production",

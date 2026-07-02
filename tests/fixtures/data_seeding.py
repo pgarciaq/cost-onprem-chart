@@ -64,7 +64,9 @@ from utils import (
 
 LOG = logging.getLogger(__name__)
 
-SEED_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "nise_templates")
+from nise_fixture_paths import get_seeding_templates_dir
+
+SEED_TEMPLATES_DIR = str(get_seeding_templates_dir())
 
 # Deterministic cluster UUID per org for session seed uploads.
 SEED_CLUSTER_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")

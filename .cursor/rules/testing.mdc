@@ -67,9 +67,10 @@ A session-scoped autouse pytest fixture in `tests/fixtures/data_seeding.py`
 runs at session start (before any tests). It is **idempotent**: it queries ROS
 DB row counts and only seeds categories below their thresholds.
 
-**Flow:** check counts → generate NISE data from `tests/fixtures/nise_templates/`
-(4 YAML files: container, PVC, GPU, cluster quota) → register source → upload
-via ingress → poll until processed (5 min per category, 15 min session budget).
+**Flow:** check counts → generate NISE data from `nise/examples/ros_ocp_seeding/`
+(shipped in the koku-nise wheel; 4 YAML files: container, PVC, GPU, cluster quota)
+→ register source → upload via ingress → poll until processed (5 min per category,
+15 min session budget).
 
 **Thresholds:** container 100, namespace 50, PVC 20, GPU 20, cluster_quota 2,
 business_hours 30.

@@ -159,7 +159,7 @@ NISE is the existing data generation tool used by E2E tests. It generates proper
 | `upload_with_retry()` | `tests/e2e_helpers.py` | Upload to ingress |
 | `register_source()` | `tests/e2e_helpers.py` | Source registration |
 | `create_upload_package_from_files()` | `tests/utils.py` | Package payloads |
-| NISE templates | `tests/data/nise_templates/` | Scenario definitions |
+| NISE templates | `nise/examples/ros_ocp_e2e/` (koku-nise package) | Scenario definitions |
 
 **Recommended approach**:
 1. Create scenario YAML files for S1-S11, M1-M6 profiles

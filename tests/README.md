@@ -17,7 +17,7 @@ tests/
 ├── conftest.py              # Root fixtures (cluster config, JWT, DB, etc.)
 ├── fixtures/
 │   ├── data_seeding.py      # Session autouse: automatic NISE data seeding
-│   └── nise_templates/      # YAML templates for seed categories
+│   (seed templates now ship in koku-nise: nise/examples/ros_ocp_seeding/)
 ├── utils.py                 # Shared utility functions
 ├── e2e_helpers.py           # Centralized E2E helpers (NISE, source registration, upload)
 ├── cleanup.py               # E2E cleanup utilities

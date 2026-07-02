@@ -737,7 +737,7 @@ class TestPVCRecommendationsE2E:
         assert_structured_savings(by_plugin["pvc"])
 
 
-# Deterministic PVC names from tests/data/nise_templates/ocp_report_pvc_rightsizing.yml
+# Deterministic PVC names from nise/examples/ros_ocp_e2e/ocp_report_pvc_rightsizing.yml
 PVC_RIGHTSIZING_NAMESPACE = "pvc-rightsizing"
 PVC_FIXTURE_CLASSIFICATIONS = {
     "pvc-oversized": "oversized",

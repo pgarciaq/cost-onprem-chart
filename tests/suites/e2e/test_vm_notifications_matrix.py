@@ -77,7 +77,7 @@ NOTIF_VM_NUMA_OVERSIZED = 63
 VM_NOTIF_CODES_DIRECT = range(37, 43)
 VM_NOTIF_CODES_ALL = range(37, 64)
 
-# VM names from tests/data/nise_templates/ocp_report_vm_notifications.yml
+# VM names from nise/examples/ros_ocp_e2e/ocp_report_vm_notifications.yml
 VM_NOTIF_EXPECTATIONS: dict[tuple[str, str], set[int]] = {
     ("disk-grow-hypervisor-01", _NOTIF_NAMESPACE): {NOTIF_DISK_GROWING_HYPERVISOR},
     ("no-guest-agent-01", _NOTIF_NAMESPACE): {NOTIF_NO_GUEST_AGENT},

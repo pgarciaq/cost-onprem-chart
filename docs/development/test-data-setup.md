@@ -7,7 +7,7 @@ that runs with every pytest session, and **manual scenario setup** via
 For detailed information on specific test types, see:
 - [E2E Scenarios](../../tests/suites/e2e/README.md) - YAML-driven scenario definitions
 - [Performance Profiles](../../tests/suites/performance/README.md) - Production-based sizing profiles
-- [NISE Templates](../../tests/data/nise_templates/README.md) - Available data templates
+- NISE Templates — shipped inside the `koku-nise` wheel at `nise/examples/ros_ocp_e2e/`
 
 ## Automatic Data Seeding
 
@@ -20,7 +20,7 @@ workflow.
 
 1. Connects to the ROS PostgreSQL database and counts rows in key digest tables.
 2. For each category below its minimum threshold, generates NISE OCP reports
-   from YAML templates in `tests/fixtures/nise_templates/`.
+   from YAML templates shipped in the `koku-nise` package (`nise/examples/ros_ocp_seeding/`).
 3. Registers a deterministic session seed source, uploads the tarball via
    ingress, and polls until the ROS processor has ingested the data.
 
@@ -43,7 +43,7 @@ fixture only ensures base container data exists when the BH threshold is unmet.
 
 ### NISE templates
 
-Four YAML files in `tests/fixtures/nise_templates/` cover the seed categories:
+Four YAML files in `nise/examples/ros_ocp_seeding/` (shipped in the koku-nise wheel) cover the seed categories:
 
 | Template | Covers |
 |----------|--------|
@@ -365,5 +365,5 @@ The `deploy-test-cost-onprem.sh` script can setup data automatically:
 - [Test Suite README](../../tests/README.md) - Test framework overview
 - [Performance Testing](../../tests/suites/performance/README.md) - Performance test details
 - [E2E Testing](../../tests/suites/e2e/README.md) - E2E scenario tests
-- [NISE Templates](../../tests/data/nise_templates/README.md) - Available data templates
+- NISE Templates — shipped inside the `koku-nise` wheel at `nise/examples/ros_ocp_e2e/`
 - [Sizing Guide](../performance/sizing-guide.md) - Resource requirements per profile
