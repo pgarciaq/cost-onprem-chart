@@ -241,11 +241,14 @@ def generate_node_yaml(
     
     namespaces_yaml = []
     for ns_idx in range(namespaces):
-        ns_name = f"{base_name}-ns-{ns_idx:03d}"
+        # Namespace names must be unique cluster-wide: NISE _gen_namespaces() uses a dict
+        # keyed by name and keeps only the last node (see nise/generators/ocp/ocp_generator.py).
+        ns_name = f"{base_name}-node-{node_index:03d}-ns-{ns_idx:03d}"
         pods_yaml = []
         
         for pod_idx in range(pods_per_namespace):
-            pod_name = f"{base_name}-pod-{ns_idx:03d}-{pod_idx:03d}"
+            # Pod names must be unique cluster-wide (K8s + ROS container_id dedupe by name).
+            pod_name = f"{base_name}-node-{node_index:03d}-pod-{ns_idx:03d}-{pod_idx:03d}"
             # Vary CPU/memory slightly per pod for realistic data
             cpu_request = 0.25 + (pod_idx % 4) * 0.25  # 0.25, 0.5, 0.75, 1.0
             mem_request = 0.5 + (pod_idx % 4) * 0.5  # 0.5, 1.0, 1.5, 2.0

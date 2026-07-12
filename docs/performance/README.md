@@ -7,6 +7,7 @@ This directory contains all performance-related documentation for Cost On-Prem.
 | Document | Description |
 |----------|-------------|
 | [performance-testing-plan.md](performance-testing-plan.md) | Comprehensive testing strategy for FLPATH-4036 |
+| [kruize-vs-native-engine-comparison.md](kruize-vs-native-engine-comparison.md) | Runbook: Kruize vs native engine benchmarks (dell-r640-082 lab) |
 | [TEST-MATRIX.md](TEST-MATRIX.md) | Complete test matrix with all permutations and parameters |
 | [FINDINGS.md](FINDINGS.md) | Issues discovered during testing (Jira-ready summaries) |
 | [sizing-guide.md](sizing-guide.md) | Resource sizing recommendations by deployment scale |
