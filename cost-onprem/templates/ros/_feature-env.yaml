@@ -1,5 +1,7 @@
 {{/*
-  ROS feature flags: tag sync/filtering and plugin registry (ros-api and ros-processor).
+  ROS feature flags and security env (ROS_CSV_ALLOWED_HOSTS, plugins, thresholds).
+  Required on every ros-ocp-backend process that calls runServiceStartup (api,
+  processor, housekeeper, partition-cleaner, recommendation-poller).
   Included under containers[].env with indent 12.
 */}}
 {{- define "cost-onprem.ros.featureEnv" }}

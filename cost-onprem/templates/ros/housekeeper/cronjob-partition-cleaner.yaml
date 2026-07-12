@@ -36,6 +36,7 @@ spec:
                 ./rosocp start housekeeper --partitions
             env:
 {{- include "cost-onprem.ros.goMemLimitEnv" (dict "root" . "component" "partitionCleaner") | nindent 12 }}
+{{- include "cost-onprem.ros.featureEnv" . | nindent 12 }}
             - name: CLOWDER_ENABLED
               value: "false"
             - name: SERVICE_NAME

@@ -638,6 +638,29 @@ class TestSecurityEnvVars:
         assert "s3.example.com" in section
         assert "user:pass@" not in section
 
+    @pytest.mark.parametrize(
+        "kind,component",
+        [
+            ("Deployment", "housekeeper"),
+            ("Deployment", "ros-recommendation-poller"),
+            ("CronJob", "ros-database-maintenance"),
+        ],
+    )
+    def test_ros_background_services_set_csv_allowed_hosts(
+        self, chart_path: str, kind: str, component: str
+    ):
+        """All ros-ocp processes calling runServiceStartup need ROS_CSV_ALLOWED_HOSTS."""
+        set_values = {
+            k: v for k, v in OFFLINE_MOCK_VALUES.items() if k != "objectStorage.endpoint"
+        }
+        success, output = helm_template(chart_path, set_values=set_values)
+        assert success, "Template rendering failed"
+
+        section = _find_helm_document(output, kind=kind, component=component)
+        assert section, f"{component} {kind} not found"
+        assert "name: ROS_CSV_ALLOWED_HOSTS" in section
+        assert "s3.openshift-storage.svc.cluster.local" in section
+
     def test_ros_auth_delegator_clusterrolebinding_when_internal_auth_enabled(self, chart_path: str):
         """ROS ServiceAccount must bind to system:auth-delegator for TokenReview."""
         success, output = helm_template(chart_path, set_values=OFFLINE_MOCK_VALUES)
