@@ -14,6 +14,7 @@ Thresholds (global row counts in costonprem_ros):
   daily_namespace_digests              >= 50
   daily_pvc_digests                    >= 20
   gpu_container_digests                >= 20
+  node_gpu_timeslicing_recommendations >= 1
   cluster_quota_recommendation_sets    >= 2
   daily_container_digests (business_hours schedule_type) >= 30
 
@@ -133,6 +134,13 @@ SEED_CATEGORIES: tuple[SeedCategory, ...] = (
         table="gpu_container_digests",
         min_rows=20,
         template="seed_gpu.yml",
+    ),
+    SeedCategory(
+        name="gpu_timeslicing",
+        table="node_gpu_timeslicing_recommendations",
+        min_rows=1,
+        template="seed_gpu.yml",
+        wait_query="SELECT COUNT(*) FROM node_gpu_timeslicing_recommendations",
     ),
     SeedCategory(
         name="cluster_quota",

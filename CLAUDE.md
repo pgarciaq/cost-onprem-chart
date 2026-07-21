@@ -100,6 +100,7 @@ through ingress, and polls until processing completes.
 | namespace | `daily_namespace_digests` (all_hours) | 50 |
 | PVC | `daily_pvc_digests` | 20 |
 | GPU | `gpu_container_digests` | 20 |
+| gpu_timeslicing | `node_gpu_timeslicing_recommendations` | 1 |
 | cluster_quota | `cluster_quota_recommendation_sets` | 2 |
 | business_hours | `daily_container_digests` (business_hours) | 30 |
 
