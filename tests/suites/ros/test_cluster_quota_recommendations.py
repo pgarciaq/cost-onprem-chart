@@ -701,7 +701,7 @@ class TestClusterQuotaRecommendationsE2E:
             pytest.skip("Need multiple tighten cluster quota rows for savings order_by test")
 
         savings = [
-            (i.get("estimated_savings") or {}).get("value") or 0 for i in tighten_rows
+            float((i.get("estimated_savings") or {}).get("value") or 0) for i in tighten_rows
         ]
         assert savings == sorted(savings, reverse=True)
 
