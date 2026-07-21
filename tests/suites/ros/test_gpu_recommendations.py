@@ -237,17 +237,38 @@ class TestGPURecommendationsE2E:
             ros_api_url,
             gpu_auth,
             "timeslicing",
-            {"order_by": "confidence", "order_how": "desc", "limit": 50},
+            {"order_by": "node_name", "order_how": "asc", "limit": 50},
         )
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if len(items) < 2:
             pytest.skip("Need at least two time-slicing rows to verify sort order")
         for i in range(1, len(items)):
-            prev_conf = items[i - 1].get("confidence")
-            curr_conf = items[i].get("confidence")
-            assert prev_conf is not None and curr_conf is not None
-            assert prev_conf >= curr_conf
+            prev_node = items[i - 1].get("node_name", "")
+            curr_node = items[i].get("node_name", "")
+            assert prev_node <= curr_node
+
+    def test_gpu_timeslicing_order_by_confidence_rejected(
+        self,
+        ros_api_url: str,
+        gpu_auth: dict,
+        http_session: requests.Session,
+    ):
+        """Verify that confidence is rejected as order_by (not scalably paginatable)."""
+        summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
+        if summary.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+
+        resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_auth,
+            "timeslicing",
+            {"order_by": "confidence", "order_how": "desc", "limit": 50},
+        )
+        assert resp.status_code == 400, (
+            f"Expected 400 for non-paginatable order_by=confidence, got {resp.status_code}"
+        )
 
     def test_gpu_timeslicing_pagination(
         self,
@@ -258,15 +279,15 @@ class TestGPURecommendationsE2E:
         summary = _fetch_gpu(http_session, ros_api_url, gpu_auth)
         if summary.status_code == 404:
             pytest.skip("GPU recommendations plugin not enabled")
-        if summary.json().get("timeslicing", {}).get("count", 0) == 0:
-            pytest.skip("No GPU time-slicing recommendations in cluster")
 
         resp = _fetch_gpu(
             http_session, ros_api_url, gpu_auth, "timeslicing", {"limit": 1}
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert body.get("meta", {}).get("count", 0) > 0
+        total = body.get("meta", {}).get("count", 0)
+        if total == 0:
+            pytest.skip("No materialized GPU time-slicing recommendations in cluster")
         assert len(body.get("data") or []) == 1
 
     def test_gpu_timeslicing_filter_gpu_model(
