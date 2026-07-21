@@ -1,5 +1,5 @@
-# SNO aarch64 test cluster - custom image overrides
-# Cluster: sno.karmalabs.corp (OCP 4.21 aarch64)
+# SNO aarch64 test cluster - phase16 deployment
+# Cluster: sno.karmalabs.corp (OCP 4.22 aarch64)
 # Uses internal OCP image registry
 
 # insights-rbac is amd64-only; Koku uses ENHANCED_ORG_ADMIN when RBAC is disabled.
@@ -11,15 +11,14 @@ global:
   storageClass: "lvms-vg1"
   pullPolicy: IfNotPresent
 
-# Custom arm64 ROS image (phase10: quota + cluster-quota)
+# Custom arm64 ROS image (phase16: native engine, quotas, cluster-quotas)
 ros:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
-    tag: "phase10-20260528"
+    tag: "phase16-20260715"
     pullPolicy: IfNotPresent
   api:
     businessHoursEnabled: true
-    # Empty allowlist = all native plugins (includes quota, cluster-quota).
     enabledPlugins: ""
     disabledPlugins: ""
     quotaRecommendations:
@@ -39,7 +38,7 @@ costManagement:
       ENHANCED_ORG_ADMIN: "True"
     image:
       repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku
-      tag: "bh-20260522"
+      tag: "phase16-20260715"
       pullPolicy: IfNotPresent
   celery:
     pollingTimer: 60
@@ -101,15 +100,16 @@ costManagement:
 ingress:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-ingress-go
-    tag: "latest"
+    tag: "phase16-20260715"
     pullPolicy: IfNotPresent
 
-# Stock multi-arch PostgreSQL
+# Stock multi-arch PostgreSQL (docker.io/library/postgres:16)
 database:
   server:
     image:
       repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/postgresql
       tag: "16"
+    initScriptsMountPath: /docker-entrypoint-initdb.d
     storage:
       size: "20Gi"
   ros:
@@ -122,13 +122,9 @@ database:
     storage:
       size: "5Gi"
 
-# Kruize (Autotune) - ENABLED for testing both engines
+# Kruize disabled - native engine only
 kruize:
-  enabled: true
-  image:
-    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/autotune
-    tag: "latest"
-    pullPolicy: IfNotPresent
+  enabled: false
 
 # S3/MinIO - chart-internal MinIO (no ODF on this cluster)
 objectStorage:
@@ -148,7 +144,7 @@ jwtAuth:
     url: "https://keycloak-keycloak.apps.sno.karmalabs.corp"
     namespace: "keycloak"
     serviceName: "keycloak-service"
-    realm: "kubernetes"
+    realm: "cost-management"
     client:
       id: "cost-management-ui"
     audiences:
@@ -179,7 +175,7 @@ gatewayRoute:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
 
-# Resources for SNO (generous since 64 cores / 128 GiB)
+# Resources for SNO (generous: 100 vCPUs / 160 GiB)
 resources:
   application:
     requests:
@@ -188,14 +184,12 @@ resources:
     limits:
       memory: "1Gi"
       cpu: "1"
-  kruize:
-    requests:
-      memory: "1Gi"
-      cpu: "200m"
-    limits:
-      memory: "2Gi"
-      cpu: "1"
 
-# Skip UI (no arm64 image built)
+# koku-ui enabled
 ui:
-  replicaCount: 0
+  replicaCount: 1
+  app:
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku-ui
+      tag: "phase16-20260715"
+      pullPolicy: IfNotPresent

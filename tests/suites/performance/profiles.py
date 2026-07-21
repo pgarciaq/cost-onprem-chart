@@ -17,10 +17,13 @@ Usage:
     print(f"Clusters: {profile['clusters']}")
 """
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 import uuid
+
+ACTIVE_PROFILE: str = os.environ.get("PERF_PROFILE", "baseline")
 
 
 # =============================================================================

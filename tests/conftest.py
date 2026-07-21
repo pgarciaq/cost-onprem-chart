@@ -1015,7 +1015,7 @@ def _ensure_keycloak_password_grant_lab_users(
         ensure_password_grant_lab_users_with_org_admin(
             keycloak_base_url=keycloak_url,
             keycloak_namespace=cluster_config.keycloak_namespace,
-            realm="kubernetes",
+            realm=os.environ.get("KEYCLOAK_REALM", "cost-management"),
             org_id=_DEFAULT_ORG_ID,
             account_number=os.environ.get("TEST_ACCOUNT_NUMBER", _DEFAULT_ACCOUNT_NUMBER),
             admin_username=os.environ.get("TEST_USERNAME", "admin"),
