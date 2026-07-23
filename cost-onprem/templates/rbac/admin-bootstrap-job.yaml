@@ -36,6 +36,10 @@ spec:
           - |
             set -e
 
+            # UBI python images put /opt/app-root/bin ahead of the app venv; force venv.
+            export PATH="/opt/rbac/.venv/bin:${PATH}"
+            PYTHON="/opt/rbac/.venv/bin/python"
+
             DB_HOST="{{ include "cost-onprem.rbac.database.host" . }}"
             DB_PORT="{{ .Values.database.server.port | default "5432" }}"
             MAX_WAIT=300
@@ -66,7 +70,7 @@ spec:
             export SYNC_USERNAME="${BOOTSTRAP_USERNAME}"
             export SYNC_ORG_ID="${BOOTSTRAP_ORG_ID}"
             export SYNC_ACCOUNT_NUMBER="${BOOTSTRAP_ACCOUNT_NUMBER}"
-            python manage.py shell <<'BOOTSTRAP_SCRIPT'
+            "$PYTHON" manage.py shell <<'BOOTSTRAP_SCRIPT'
             import os
             from api.models import Tenant
             from management.models import Group, Policy, Role, Principal
@@ -119,7 +123,7 @@ spec:
 
             echo "Running bootstrap_tenants for TenantMapping/V2 records..."
             set +e
-            python manage.py bootstrap_tenants --org-id "${BOOTSTRAP_ORG_ID}" --force
+            "$PYTHON" manage.py bootstrap_tenants --org-id "${BOOTSTRAP_ORG_ID}" --force
             bootstrap_rc=$?
             set -e
             if [ $bootstrap_rc -ne 0 ]; then

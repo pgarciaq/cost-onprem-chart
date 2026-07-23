@@ -1,0 +1,50 @@
+# Single-stage UBI9 build for aarch64 / on-prem.
+# Upstream Dockerfile copies all of /usr/lib64 into hi/core-runtime and
+# produces a broken glibc/bash on arm64 (stack smashing on /bin/sh).
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+USER root
+ENV APP_ROOT=/opt/rbac \
+    APP_HOME=/opt/rbac/rbac \
+    APP_CONFIG=/opt/rbac/rbac/gunicorn.py \
+    APP_MODULE=rbac.wsgi \
+    PIPENV_VENV_IN_PROJECT=1 \
+    PIPENV_VERBOSITY=-1 \
+    PYTHONUNBUFFERED=1 \
+    PROMETHEUS_MULTIPROC_DIR=/tmp \
+    LOG_DIRECTORY=/tmp \
+    HOME=/opt/rbac
+
+RUN dnf -y install --setopt=install_weak_deps=0 \
+      postgresql-devel gcc libffi-devel python3.12-devel \
+      glibc-langpack-en which \
+    && dnf -y clean all
+
+WORKDIR ${APP_ROOT}
+RUN python3.12 -m venv /pipenv-venv \
+ && /pipenv-venv/bin/pip install --upgrade "pip>=24" pipenv
+ENV PATH="/pipenv-venv/bin:${APP_ROOT}/.venv/bin:$PATH"
+
+COPY Pipfile Pipfile.lock ./
+ENV PG_CONFIG=/usr/bin/pg_config
+RUN pipenv install --deploy && pipenv --clear
+
+COPY . .
+RUN mkdir -p /licenses /tmp/unleash_cache \
+ && cp LICENSE /licenses/ \
+ && chown -R 1001:0 ${APP_ROOT} /tmp/unleash_cache \
+ && chmod -R g+rwX ${APP_ROOT} /tmp/unleash_cache
+
+USER 1001
+WORKDIR ${APP_HOME}
+RUN python manage.py collectstatic --noinput \
+ && rm -f app.log /tmp/counter* /tmp/app.log || true
+
+ARG GIT_COMMIT=undefined
+ENV GIT_COMMIT=${GIT_COMMIT} \
+    VIRTUAL_ENV=${APP_ROOT}/.venv \
+    PATH="${APP_ROOT}/.venv/bin:/pipenv-venv/bin:/opt/app-root/bin:$PATH"
+
+EXPOSE 8080
+WORKDIR ${APP_ROOT}
+ENTRYPOINT ["./scripts/entrypoint.sh"]

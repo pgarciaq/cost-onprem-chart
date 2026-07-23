@@ -1,10 +1,17 @@
-# SNO aarch64 test cluster - phase16 deployment
+# SNO aarch64 test cluster - branch images
 # Cluster: sno.karmalabs.corp (OCP 4.22 aarch64)
 # Uses internal OCP image registry
+# Image tag: branch-202607221358 (pgarciaq-rosocp-superpowers-phase16)
 
-# insights-rbac is amd64-only; Koku uses ENHANCED_ORG_ADMIN when RBAC is disabled.
+# insights-rbac built natively on Apollo aarch64 and pushed to SNO registry.
 rbac:
-  enabled: false
+  enabled: true
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-rbac
+    tag: "branch-202607231512-ubi9"
+    pullPolicy: IfNotPresent
+  bootstrapAdmin:
+    enabled: true
 
 global:
   clusterDomain: "apps.sno.karmalabs.corp"
@@ -15,7 +22,7 @@ global:
 ros:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
-    tag: "phase16-20260715"
+    tag: "branch-202607221358"
     pullPolicy: IfNotPresent
   api:
     businessHoursEnabled: true
@@ -35,10 +42,11 @@ costManagement:
   api:
     enabled: true
     env:
-      ENHANCED_ORG_ADMIN: "True"
+      # False so Koku calls insights-rbac (required when rbac.enabled=true)
+      ENHANCED_ORG_ADMIN: "False"
     image:
       repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku
-      tag: "phase16-20260715"
+      tag: "branch-202607221358"
       pullPolicy: IfNotPresent
   celery:
     pollingTimer: 60
@@ -100,7 +108,7 @@ costManagement:
 ingress:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-ingress-go
-    tag: "phase16-20260715"
+    tag: "branch-202607221358"
     pullPolicy: IfNotPresent
 
 # Stock multi-arch PostgreSQL (docker.io/library/postgres:16)
@@ -153,6 +161,24 @@ jwtAuth:
       - account
     tls:
       insecureSkipVerify: true
+  # Used by rbac.bootstrapAdmin (first orgAdmin:true entry)
+  realmUsers:
+    - username: admin
+      password: admin
+      email: admin@test.com
+      firstName: Admin
+      lastName: User
+      orgId: "1234567"
+      accountNumber: "7890123"
+      orgAdmin: true
+    - username: viewer
+      password: viewer
+      email: viewer@test.com
+      firstName: Viewer
+      lastName: User
+      orgId: "1234567"
+      accountNumber: "7890123"
+      orgAdmin: false
   envoy:
     routeTimeout: "300s"
     routePerTryTimeout: "150s"
@@ -191,5 +217,5 @@ ui:
   app:
     image:
       repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku-ui
-      tag: "phase16-20260715"
+      tag: "branch-202607221358"
       pullPolicy: IfNotPresent
