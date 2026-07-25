@@ -559,17 +559,17 @@ class TestContainerDetailE2E:
         assert resp.status_code == 200, resp.text
         _assert_container_list_engine_filter(resp.json(), "performance")
 
-    def test_container_filter_idle_state_active(
+    def test_container_filter_category_optimized(
         self,
         ros_api_url: str,
         container_auth: dict,
         http_session: requests.Session,
     ):
-        """When active rows exist, each returned row must have idle_state=active."""
+        """When optimized rows exist, each returned row must have category=optimized."""
         resp = http_session.get(
             get_recommendations_endpoint(ros_api_url),
             headers=container_auth,
-            params={"filter[idle_state]": "active", "limit": 20},
+            params={"filter[category]": "optimized", "limit": 20},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
@@ -577,25 +577,25 @@ class TestContainerDetailE2E:
         _assert_paginated_envelope(body)
         items = body.get("data") or []
         if not items:
-            pytest.skip("No active container recommendations in cluster")
+            pytest.skip("No optimized container recommendations in cluster")
         for item in items:
-            assert item.get("idle_state") == "active", (
-                f"Expected idle_state=active, got {item.get('idle_state')!r}"
+            assert item.get("category") == "optimized", (
+                f"Expected category=optimized, got {item.get('category')!r}"
             )
 
-    def test_container_filter_idle_state(
+    def test_container_filter_category(
         self,
         ros_api_url: str,
         container_auth: dict,
         http_session: requests.Session,
     ):
-        """Containers filtered by idle_state return rows matching the applied state."""
+        """Containers filtered by category return rows matching the applied category."""
         endpoint = get_recommendations_endpoint(ros_api_url)
-        for state in ("idle", "zombie"):
+        for category in ("idle", "zombie"):
             resp = http_session.get(
                 endpoint,
                 headers=container_auth,
-                params={"filter[idle_state]": state, "limit": 5},
+                params={"filter[category]": category, "limit": 5},
                 timeout=60,
             )
             assert resp.status_code == 200, resp.text
@@ -604,23 +604,23 @@ class TestContainerDetailE2E:
             items = body.get("data") or []
             if items:
                 for item in items:
-                    assert item.get("idle_state") == state, (
-                        f"Expected idle_state={state!r}, got {item.get('idle_state')!r}"
+                    assert item.get("category") == category, (
+                        f"Expected category={category!r}, got {item.get('category')!r}"
                     )
                 return
         pytest.skip("No idle or zombie containers on cluster")
 
-    def test_container_filter_idle_state_zombie(
+    def test_container_filter_category_zombie(
         self,
         ros_api_url: str,
         container_auth: dict,
         http_session: requests.Session,
     ):
-        """When zombie rows exist, each returned row must have idle_state=zombie."""
+        """When zombie rows exist, each returned row must have category=zombie."""
         resp = http_session.get(
             get_recommendations_endpoint(ros_api_url),
             headers=container_auth,
-            params={"filter[idle_state]": "zombie", "limit": 20},
+            params={"filter[category]": "zombie", "limit": 20},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
@@ -630,8 +630,8 @@ class TestContainerDetailE2E:
         if not items:
             pytest.skip("No zombie container recommendations in cluster")
         for item in items:
-            assert item.get("idle_state") == "zombie", (
-                f"Expected idle_state=zombie, got {item.get('idle_state')!r}"
+            assert item.get("category") == "zombie", (
+                f"Expected category=zombie, got {item.get('category')!r}"
             )
 
     def test_container_filter_gpu_model(

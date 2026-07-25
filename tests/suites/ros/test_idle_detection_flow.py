@@ -1,7 +1,7 @@
 """E2E tests for ROS idle-detection list and savings APIs.
 
-Validates filter[idle_state], filter[gpu_idle_state], namespace idle filters,
-group_by[idle_state], order_by idle fields, and response shape.
+Validates filter[category], filter[gpu_idle_state], namespace category filters,
+group_by[idle_state], order_by category fields, and response shape.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _namespaces_endpoint(ros_api_url: str) -> str:
 
 
 _IDLE_RESPONSE_FIELDS = (
-    "idle_state",
+    "category",
     "idle_since",
     "idle_duration_days",
     "estimated_monthly_waste",
@@ -54,12 +54,12 @@ class TestIdleDetectionFlowE2E:
         idle_flow_auth: dict,
         http_session: requests.Session,
     ):
-        """filter[idle_state]=zombie,idle returns rows where each has idle_state in (idle, zombie)."""
+        """filter[category]=zombie,idle returns rows where each has category in (idle, zombie)."""
         endpoint = get_recommendations_endpoint(ros_api_url)
         resp = http_session.get(
             endpoint,
             headers=idle_flow_auth,
-            params={"filter[idle_state]": "zombie,idle", "limit": 10},
+            params={"filter[category]": "zombie,idle", "limit": 10},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
@@ -71,8 +71,8 @@ class TestIdleDetectionFlowE2E:
         if not items:
             pytest.skip("No idle or zombie containers on cluster")
         for item in items:
-            assert item.get("idle_state") in ("idle", "zombie"), (
-                f"Expected idle_state in (idle, zombie), got {item.get('idle_state')!r}"
+            assert item.get("category") in ("idle", "zombie"), (
+                f"Expected category in (idle, zombie), got {item.get('category')!r}"
             )
 
     def test_container_list_filter_active(
@@ -81,22 +81,22 @@ class TestIdleDetectionFlowE2E:
         idle_flow_auth: dict,
         http_session: requests.Session,
     ):
-        """filter[idle_state]=active returns rows where each has idle_state=active."""
+        """filter[category]=optimized returns rows where each has category=optimized."""
         endpoint = get_recommendations_endpoint(ros_api_url)
         resp = http_session.get(
             endpoint,
             headers=idle_flow_auth,
-            params={"filter[idle_state]": "active", "limit": 10},
+            params={"filter[category]": "optimized", "limit": 10},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         items = body.get("data") or []
         if not items:
-            pytest.skip("No active containers on cluster")
+            pytest.skip("No optimized containers on cluster")
         for item in items:
-            assert item.get("idle_state") == "active", (
-                f"Expected idle_state=active, got {item.get('idle_state')!r}"
+            assert item.get("category") == "optimized", (
+                f"Expected category=optimized, got {item.get('category')!r}"
             )
 
     def test_savings_summary_group_by_idle_state(
@@ -117,7 +117,7 @@ class TestIdleDetectionFlowE2E:
         assert isinstance(body["data"], list)
         if body["data"]:
             row = body["data"][0]
-            assert "idle_state" in row
+            assert "category" in row
 
     def test_container_list_order_by_idle_duration_days(
         self,
@@ -156,7 +156,7 @@ class TestIdleDetectionFlowE2E:
             resp = http_session.get(
                 endpoint,
                 headers=idle_flow_auth,
-                params={"filter[idle_state]": state_filter, "limit": 1},
+                params={"filter[category]": state_filter, "limit": 1},
                 timeout=60,
             )
             assert resp.status_code == 200, resp.text
@@ -169,26 +169,26 @@ class TestIdleDetectionFlowE2E:
         for field in _IDLE_RESPONSE_FIELDS:
             assert field in row, f"Missing {field} on idle row: {row.keys()}"
 
-    def test_idle_order_by_idle_state(
+    def test_idle_order_by_category(
         self,
         ros_api_url: str,
         idle_flow_auth: dict,
         http_session: requests.Session,
     ):
-        """order_by=idle_state returns 200 and items have idle_state field."""
+        """order_by=category returns 200 and items have category field."""
         endpoint = get_recommendations_endpoint(ros_api_url)
         resp = http_session.get(
             endpoint,
             headers=idle_flow_auth,
-            params={"order_by": "idle_state", "limit": 10},
+            params={"order_by": "category", "limit": 10},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No containers on cluster to verify idle_state sort")
+            pytest.skip("No containers on cluster to verify category sort")
         for item in items:
-            assert "idle_state" in item, f"Missing idle_state field: {list(item.keys())}"
+            assert "category" in item, f"Missing category field: {list(item.keys())}"
 
     def test_idle_order_by_estimated_monthly_waste(
         self,
@@ -218,17 +218,17 @@ class TestIdleDetectionFlowE2E:
                     f"Sort violated at index {i}: {wastes[i]} < {wastes[i + 1]}"
                 )
 
-    def test_namespace_filter_idle_state(
+    def test_namespace_filter_category(
         self,
         ros_api_url: str,
         idle_flow_auth: dict,
         http_session: requests.Session,
     ):
-        """Namespace endpoint accepts filter[idle_state] and returns matching rows."""
+        """Namespace endpoint accepts filter[category] and returns matching rows."""
         resp = http_session.get(
             _namespaces_endpoint(ros_api_url),
             headers=idle_flow_auth,
-            params={"filter[idle_state]": "idle", "limit": 10},
+            params={"filter[category]": "idle", "limit": 10},
             timeout=60,
         )
         assert resp.status_code == 200, resp.text
@@ -242,10 +242,10 @@ class TestIdleDetectionFlowE2E:
             assert "project" in item, (
                 f"Namespace row missing project field: {list(item.keys())}"
             )
-            idle_state = item.get("idle_state")
-            if idle_state is not None:
-                assert idle_state == "idle", (
-                    f"Expected idle_state=idle, got {idle_state!r}"
+            category = item.get("category")
+            if category is not None:
+                assert category == "idle", (
+                    f"Expected category=idle, got {category!r}"
                 )
 
     def test_gpu_idle_state_filter(

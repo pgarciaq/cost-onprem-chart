@@ -1,12 +1,12 @@
 """
-Extended E2E: node idle_state filtering and consolidation hints.
+Extended E2E: node category filtering and consolidation hints.
 
 Test plan:
   1. Register a dedicated OCP source with a unique cluster UUID.
-  2. Generate NISE data (ocp_report_node_idle_consolidation.yml) with zombie, idle,
-     and lightly loaded worker nodes.
+  2. Generate NISE data (ocp_report_node_idle_consolidation.yml) with idle,
+     underutilized, and lightly loaded worker nodes.
   3. Upload via ingress; wait for ROS node digests and node_recommendations.
-  4. GET /recommendations/openshift/nodes?filter[idle_state]=idle|zombie
+  4. GET /recommendations/openshift/nodes?filter[category]=idle|underutilized
   5. Assert node_count_reduction > 0 on underutilized worker nodes.
 
 Run (requires cluster + extended time budget):
@@ -47,7 +47,7 @@ from utils import (
 _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_node_idle_consolidation.yml"
 _EXPECTED_IDLE_NODES = frozenset({"node-idle"})
-_EXPECTED_ZOMBIE_NODES = frozenset({"node-zombie"})
+_EXPECTED_UNDERUTILIZED_NODES = frozenset({"node-zombie"})
 _CONSOLIDATION_NODE_PREFIX = "m5-node-"
 
 
@@ -148,7 +148,7 @@ def _nodes_for_cluster(
 @pytest.mark.slow
 @pytest.mark.timeout(900)
 class TestNodeIdleConsolidationExtendedFlow:
-    """Upload multi-node ROS data and verify idle filters and consolidation hints."""
+    """Upload multi-node ROS data and verify category filters and consolidation hints."""
 
     @pytest.fixture(scope="class")
     def node_idle_e2e_cluster_id(self) -> str:
@@ -270,11 +270,11 @@ class TestNodeIdleConsolidationExtendedFlow:
             ros_api_url,
             auth,
             node_idle_e2e_cluster_id,
-            {"filter[idle_state]": "idle"},
+            {"filter[category]": "idle"},
         )
         if not idle_rows:
             pytest.skip(
-                "No nodes with idle_state=idle after upload; "
+                "No nodes with category=idle after upload; "
                 "thresholds or observation window may need tuning on this cluster"
             )
         idle_names = {r["node"] for r in idle_rows}
@@ -282,26 +282,26 @@ class TestNodeIdleConsolidationExtendedFlow:
             f"Expected at least one of {_EXPECTED_IDLE_NODES} in idle filter, got {idle_names}"
         )
         for row in idle_rows:
-            assert row.get("classification", {}).get("idle_state") == "idle"
+            assert row.get("classification", {}).get("category") == "idle"
 
-        zombie_rows = _nodes_for_cluster(
+        underutilized_rows = _nodes_for_cluster(
             http_session,
             ros_api_url,
             auth,
             node_idle_e2e_cluster_id,
-            {"filter[idle_state]": "zombie"},
+            {"filter[category]": "underutilized"},
         )
-        if not zombie_rows:
+        if not underutilized_rows:
             pytest.skip(
-                "No nodes with idle_state=zombie after upload; "
-                "zombie thresholds may need tuning on this cluster"
+                "No nodes with category=underutilized after upload; "
+                "thresholds may need tuning on this cluster"
             )
-        zombie_names = {r["node"] for r in zombie_rows}
-        assert zombie_names & _EXPECTED_ZOMBIE_NODES, (
-            f"Expected at least one of {_EXPECTED_ZOMBIE_NODES} in zombie filter, got {zombie_names}"
+        underutilized_names = {r["node"] for r in underutilized_rows}
+        assert underutilized_names & _EXPECTED_UNDERUTILIZED_NODES, (
+            f"Expected at least one of {_EXPECTED_UNDERUTILIZED_NODES} in underutilized filter, got {underutilized_names}"
         )
-        for row in zombie_rows:
-            assert row.get("classification", {}).get("idle_state") == "zombie"
+        for row in underutilized_rows:
+            assert row.get("classification", {}).get("category") == "underutilized"
 
         all_rows = _nodes_for_cluster(
             http_session, ros_api_url, auth, node_idle_e2e_cluster_id

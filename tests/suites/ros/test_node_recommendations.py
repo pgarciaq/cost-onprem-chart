@@ -69,8 +69,7 @@ def _assert_node_list_shape(item: dict[str, Any]) -> None:
     """List rows use classification, metrics, and recommendation_terms."""
     assert isinstance(item.get("classification"), dict), "missing classification object"
     cls = item["classification"]
-    assert "is_underutilized" in cls
-    assert "idle_state" in cls
+    assert "category" in cls
 
     assert isinstance(item.get("metrics"), dict), "missing metrics object"
     metrics = item["metrics"]
@@ -82,7 +81,7 @@ def _assert_node_list_shape(item: dict[str, Any]) -> None:
 
 
 def _assert_node_detail_shape(detail: dict[str, Any]) -> None:
-    """Detail uses metrics, recommendation_terms, and top-level idle_state."""
+    """Detail uses metrics, recommendation_terms, and classification.category."""
     assert isinstance(detail.get("metrics"), dict), "missing metrics object"
     metrics = detail["metrics"]
     for key in ("cpu_util_p50", "cpu_util_p95", "mem_util_p50", "mem_util_p95"):
@@ -90,7 +89,9 @@ def _assert_node_detail_shape(detail: dict[str, Any]) -> None:
 
     terms = detail.get("recommendation_terms")
     assert isinstance(terms, dict) and terms, "missing recommendation_terms"
-    assert detail.get("idle_state"), "detail missing idle_state"
+    cls = detail.get("classification")
+    assert isinstance(cls, dict), "detail missing classification"
+    assert "category" in cls, "detail classification missing category"
 
 
 def _node_count_reduction_on_item(item: dict[str, Any]) -> bool:
@@ -437,7 +438,7 @@ class TestNodeRecommendationsE2E:
         assert detail.get("node") == node_name
         _assert_node_detail_shape(detail)
 
-    def test_node_filter_idle_state(
+    def test_node_filter_category_optimized(
         self,
         ros_api_url: str,
         node_auth: dict,
@@ -447,21 +448,21 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[idle_state]": "active", "limit": 20},
+            {"filter[category]": "optimized", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No node recommendations matching filter[idle_state]=active")
+            pytest.skip("No node recommendations matching filter[category]=optimized")
 
         for item in items:
-            idle = (item.get("classification") or {}).get("idle_state")
-            if idle is not None:
-                assert idle == "active"
+            category = (item.get("classification") or {}).get("category")
+            if category is not None:
+                assert category == "optimized"
 
-    def test_node_filter_idle_state_zombie(
+    def test_node_filter_category_overcommitted(
         self,
         ros_api_url: str,
         node_auth: dict,
@@ -471,20 +472,20 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[idle_state]": "zombie", "limit": 20},
+            {"filter[category]": "overcommitted", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No node recommendations matching filter[idle_state]=zombie")
+            pytest.skip("No node recommendations matching filter[category]=overcommitted")
 
         for item in items:
-            idle = (item.get("classification") or {}).get("idle_state")
-            assert idle == "zombie"
+            category = (item.get("classification") or {}).get("category")
+            assert category == "overcommitted"
 
-    def test_node_filter_idle_state_idle(
+    def test_node_filter_category_idle(
         self,
         ros_api_url: str,
         node_auth: dict,
@@ -494,31 +495,31 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[idle_state]": "idle", "limit": 20},
+            {"filter[category]": "idle", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No node recommendations matching filter[idle_state]=idle")
+            pytest.skip("No node recommendations matching filter[category]=idle")
 
         for item in items:
-            idle = (item.get("classification") or {}).get("idle_state")
-            assert idle == "idle"
+            category = (item.get("classification") or {}).get("category")
+            assert category == "idle"
 
-    def test_node_filter_idle_state_multi(
+    def test_node_filter_category_multi(
         self,
         ros_api_url: str,
         node_auth: dict,
         http_session: requests.Session,
     ):
-        allowed = {"active", "zombie"}
+        allowed = {"idle", "underutilized"}
         resp = _fetch_nodes(
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[idle_state]": "active,zombie", "limit": 20},
+            {"filter[category]": "idle,underutilized", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
@@ -526,13 +527,13 @@ class TestNodeRecommendationsE2E:
         items = resp.json().get("data") or []
         if not items:
             pytest.skip(
-                "No node recommendations matching filter[idle_state]=active,zombie"
+                "No node recommendations matching filter[category]=idle,underutilized"
             )
 
         for item in items:
-            idle = (item.get("classification") or {}).get("idle_state")
-            if idle is not None:
-                assert idle in allowed
+            category = (item.get("classification") or {}).get("category")
+            if category is not None:
+                assert category in allowed
 
     def test_node_order_by(
         self,
@@ -658,7 +659,7 @@ class TestNodeRecommendationsE2E:
                 f"filter[term]=long_term should scope to long_term, got {list(terms.keys())}"
             )
 
-    def test_node_filter_is_underutilized(
+    def test_node_filter_category_underutilized(
         self,
         ros_api_url: str,
         node_auth: dict,
@@ -668,7 +669,7 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[is_underutilized]": "true", "limit": 20},
+            {"filter[category]": "underutilized", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
@@ -677,9 +678,9 @@ class TestNodeRecommendationsE2E:
         if not items:
             pytest.skip("No underutilized nodes in cluster")
         for item in items:
-            assert (item.get("classification") or {}).get("is_underutilized") is True
+            assert (item.get("classification") or {}).get("category") == "underutilized"
 
-    def test_node_filter_is_overcommitted(
+    def test_node_filter_category_stranded_memory(
         self,
         ros_api_url: str,
         node_auth: dict,
@@ -689,18 +690,18 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[is_overcommitted]": "true", "limit": 20},
+            {"filter[category]": "stranded_memory", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No overcommitted nodes in cluster")
+            pytest.skip("No nodes with category=stranded_memory in cluster")
         for item in items:
-            assert (item.get("classification") or {}).get("is_overcommitted") is True
+            assert (item.get("classification") or {}).get("category") == "stranded_memory"
 
-    def test_node_filter_stranded_resource(
+    def test_node_filter_category_stranded_cpu(
         self,
         ros_api_url: str,
         node_auth: dict,
@@ -710,18 +711,18 @@ class TestNodeRecommendationsE2E:
             http_session,
             ros_api_url,
             node_auth,
-            {"filter[stranded_resource]": "cpu", "limit": 20},
+            {"filter[category]": "stranded_cpu", "limit": 20},
         )
         if resp.status_code == 404:
             pytest.skip("Node recommendations plugin not enabled")
         assert resp.status_code == 200, resp.text
         items = resp.json().get("data") or []
         if not items:
-            pytest.skip("No nodes with stranded_resource=cpu in cluster")
+            pytest.skip("No nodes with category=stranded_cpu in cluster")
 
         for item in items:
-            stranded = (item.get("classification") or {}).get("stranded_resource")
-            assert stranded == "cpu"
+            category = (item.get("classification") or {}).get("category")
+            assert category == "stranded_cpu"
 
     def test_node_filter_machineset_name(
         self,
