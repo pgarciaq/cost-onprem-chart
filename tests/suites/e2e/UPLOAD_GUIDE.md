@@ -46,7 +46,7 @@ If you later enable authentication, use one of the available Keycloak clients:
 #### Client 1: cost-management-operator (Recommended for API access)
 ```bash
 CLIENT_ID="cost-management-operator"
-CLIENT_SECRET="WDx7PZQ08UkLNDMzUpDeQk3za75pcl2k"
+CLIENT_SECRET="WDx7PZQ08UkLNDMzUpDeQk3za75pcl2k" # notsecret
 ```
 
 To retrieve the secret from Kubernetes:
@@ -58,7 +58,7 @@ kubectl get secret keycloak-client-secret-cost-management-operator -n keycloak \
 #### Client 2: cost-management-ui (For UI access)
 ```bash
 CLIENT_ID="cost-management-ui"
-CLIENT_SECRET="3JfTjqu1337dZ5IC2NBx2SWHC64pcuPM"
+CLIENT_SECRET="3JfTjqu1337dZ5IC2NBx2SWHC64pcuPM" # notsecret
 ```
 
 To retrieve the secret from Kubernetes:
@@ -74,7 +74,7 @@ kubectl get secret cost-onprem-ui-oauth-client -n cost-onprem \
 KEYCLOAK_URL="https://keycloak-keycloak.apps.snotp701.rhsovcloud.test"
 KEYCLOAK_REALM="cost-onprem"
 KEYCLOAK_CLIENT_ID="cost-management-operator"
-KEYCLOAK_CLIENT_SECRET="WDx7PZQ08UkLNDMzUpDeQk3za75pcl2k"
+KEYCLOAK_CLIENT_SECRET="WDx7PZQ08UkLNDMzUpDeQk3za75pcl2k" # notsecret
 
 # Get the token
 JWT_TOKEN=$(curl -sk -X POST \
