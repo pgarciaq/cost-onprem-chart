@@ -440,6 +440,8 @@ class TestGPURecommendationsE2E:
         assert "container" in item
         assert "namespace" in item
         assert "recommended_gpu_profile" in item
+        assert item.get("id")
+        assert item.get("workload_type")
 
     def test_gpu_filter_by_cluster(
         self,

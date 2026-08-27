@@ -295,6 +295,8 @@ class TestContainerGPUMigRecommendationsExtendedFlow:
         assert item.get("cluster_uuid") == gpu_mig_context.cluster_id
         assert item.get("namespace")
         assert item.get("container")
+        assert item.get("id")
+        assert item.get("workload_type")
         assert item.get("gpu_model")
         assert _EXPECTED_GPU_MODEL in (item.get("gpu_model") or "")
         assert item.get("recommended_gpu_profile")
