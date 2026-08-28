@@ -17,6 +17,7 @@ Run (requires cluster + extended time budget):
 
 from __future__ import annotations
 
+import json
 import tempfile
 import uuid
 from datetime import datetime, timedelta
@@ -388,6 +389,18 @@ class TestNamespaceRecommendationsExtendedFlow:
                     assert _namespace_detail_has_business_hours(detail_json), (
                         "namespace detail must include business_hours when schedule is enabled"
                     )
+                    list_after = _fetch_namespaces(
+                        http_session,
+                        ros_api_url,
+                        auth,
+                        {"cluster": namespace_e2e_cluster_id, "limit": 50},
+                    )
+                    assert list_after.status_code == 200, list_after.text
+                    for row in list_after.json().get("data") or []:
+                        dumped = json.dumps(row)
+                        assert '"business_hours"' not in dumped, (
+                            f"namespace list must omit business_hours (id={row.get('id')})"
+                        )
                     terms = (detail_json.get("recommendations") or {}).get(
                         "recommendation_terms"
                     ) or {}
