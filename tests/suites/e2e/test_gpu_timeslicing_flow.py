@@ -49,6 +49,7 @@ from utils import (
 _UPLOAD_ORG_ID = "1234567"
 _NISE_TEMPLATE = "ocp_report_gpu_timeslicing.yml"
 NOTIF_GPU_TIMESLICING_CANDIDATE = 36
+NOTIF_GPU_TS_BH_CLUSTER_WINDOW = 81
 
 
 @dataclass
@@ -448,3 +449,111 @@ class TestContainerGPUTimesliceExtendedFlow:
         if history_resp.status_code == 404:
             pytest.skip("GPU time-slicing history endpoint not deployed")
         assert history_resp.status_code == 400, history_resp.text
+
+    def test_timeslicing_detail_code_81_on_peak_hours_nest_only(
+        self,
+        ros_api_url: str,
+        http_session: requests.Session,
+        gpu_timeslice_context: GPUTimesliceFlowContext,
+    ):
+        """Code 81 is on detail nested business_hours replica sizing, not list/history."""
+        list_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing",
+            {"filter[cluster]": gpu_timeslice_context.cluster_id, "limit": 10},
+        )
+        if list_resp.status_code == 404:
+            pytest.skip("GPU recommendations plugin not enabled")
+        assert list_resp.status_code == 200, list_resp.text
+        items = list_resp.json().get("data") or []
+        if not items:
+            pytest.skip("No actionable time-slicing rows for code 81 contract")
+
+        for item in items:
+            assert not item.get("business_hours"), (
+                f"Timeslicing list must not nest business_hours: {item}"
+            )
+            assert NOTIF_GPU_TS_BH_CLUSTER_WINDOW not in _notification_codes(item), (
+                f"Code 81 must not appear on list parent codes: {item}"
+            )
+
+        summary_resp = _fetch_gpu(
+            http_session, ros_api_url, gpu_timeslice_context.auth
+        )
+        if summary_resp.status_code == 200:
+            summary_text = summary_resp.text
+            assert '"code":81' not in summary_text.replace(" ", "")
+            assert "GPU_TS_BH_CLUSTER_WINDOW" not in summary_text
+
+        item = items[0]
+        node_name = item.get("node_name")
+        assert node_name
+        history_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            "timeslicing/history",
+            {
+                "cluster_uuid": gpu_timeslice_context.cluster_id,
+                "node_name": node_name,
+                "limit": 10,
+            },
+        )
+        if history_resp.status_code == 200:
+            hist_text = history_resp.text
+            assert '"code":81' not in hist_text.replace(" ", "")
+            assert "GPU_TS_BH_CLUSTER_WINDOW" not in hist_text
+
+        params = {"cluster_uuid": gpu_timeslice_context.cluster_id}
+        if item.get("gpu_model"):
+            params["filter[gpu_model]"] = item["gpu_model"]
+        if item.get("term"):
+            params["filter[term]"] = item["term"]
+        detail_resp = _fetch_gpu(
+            http_session,
+            ros_api_url,
+            gpu_timeslice_context.auth,
+            f"timeslicing/{node_name}",
+            params,
+        )
+        if detail_resp.status_code == 404:
+            pytest.skip("GPU time-slicing detail endpoint not deployed")
+        assert detail_resp.status_code == 200, detail_resp.text
+        rows = detail_resp.json().get("data") or []
+        assert rows, "Timeslicing detail returned empty data"
+
+        sized = []
+        reason_only = []
+        for row in rows:
+            assert NOTIF_GPU_TS_BH_CLUSTER_WINDOW not in _notification_codes(row), (
+                f"Code 81 must not merge into detail parent codes: {row}"
+            )
+            bh = row.get("business_hours")
+            if not isinstance(bh, dict):
+                continue
+            nest_codes = _notification_codes(bh)
+            notifications = bh.get("notifications")
+            if isinstance(notifications, dict):
+                for key, entry in notifications.items():
+                    if str(key) == "81" or (
+                        isinstance(entry, dict) and entry.get("code") == 81
+                    ):
+                        nest_codes.add(81)
+            if bh.get("recommended_replicas") is not None:
+                sized.append(bh)
+                assert NOTIF_GPU_TS_BH_CLUSTER_WINDOW in nest_codes, (
+                    f"Expected notification 81 on Peak hours replica sizing: {bh}"
+                )
+            else:
+                reason_only.append(bh)
+                assert NOTIF_GPU_TS_BH_CLUSTER_WINDOW not in nest_codes, (
+                    f"Reason-only Peak hours nest must omit 81: {bh}"
+                )
+
+        if not sized and not reason_only:
+            pytest.skip(
+                "No timeslicing Peak hours nest "
+                "(needs org⊕cluster business-hours schedule)"
+            )
