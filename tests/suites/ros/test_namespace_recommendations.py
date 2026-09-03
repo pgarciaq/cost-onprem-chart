@@ -128,7 +128,6 @@ def _wait_for_joinable_namespace_rows(
               AND r.org_id = '{org_id}'
               AND ns.cluster_uuid = '{cluster_id}'
               AND ns.term IS NOT NULL
-              AND ns.schedule_type = 'all_hours'
             """,
         )
         return result is not None and int(result[0][0]) >= min_projects
