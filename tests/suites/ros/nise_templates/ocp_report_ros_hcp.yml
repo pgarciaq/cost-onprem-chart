@@ -1,0 +1,77 @@
+---
+# HCP E2E fixture for cost-onprem-chart #641 (ros-ocp-backend HCP surface).
+# Container rows in HCP-named namespaces; HCP evidence (snapshots) is seeded
+# separately by the suite via SQL — NISE namespaces alone are not evidence.
+#   clusters-hc-a → snapshot-associated to hc-e2e-1 (2 pods)
+#   clusters-hc-b → snapshot-evidenced with empty ID (1 pod, incomplete:true)
+#   app-ns        → no evidence (control; never on the HCP surface)
+generators:
+  - OCPGenerator:
+      nodes:
+        - node:
+          node_name: node-hcp-A
+          cpu_cores: 30
+          memory_gig: 25
+          resource_id: 29999920
+          namespaces:
+            clusters-hc-a:
+              namespace_labels: label_environment:production|label_team:platform
+              pods:
+                - pod:
+                  pod_name: pod-hcp-a1
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 1
+                  cpu_limit: 3
+                  mem_limit_gig: 3
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 2
+                  mem_usage_gig:
+                    full_period: 3
+                  labels: label_ros:ros_hcp_a1|label_environment:production|label_team:platform
+                - pod:
+                  pod_name: pod-hcp-a2
+                  workload: deployment
+                  cpu_request: 3
+                  mem_request_gig: 3
+                  cpu_limit: 3
+                  mem_limit_gig: 3
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 0.5
+                  mem_usage_gig:
+                    full_period: 1
+                  labels: label_ros:ros_hcp_a2|label_environment:production|label_team:platform
+            clusters-hc-b:
+              namespace_labels: label_environment:production|label_team:platform
+              pods:
+                - pod:
+                  pod_name: pod-hcp-b1
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 2
+                  cpu_limit: 4
+                  mem_limit_gig: 4
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 1
+                  mem_usage_gig:
+                    full_period: 2
+                  labels: label_ros:ros_hcp_b1|label_environment:production|label_team:platform
+            app-ns:
+              namespace_labels: label_environment:production|label_team:platform
+              pods:
+                - pod:
+                  pod_name: pod-app-1
+                  workload: deployment
+                  cpu_request: 2
+                  mem_request_gig: 1
+                  cpu_limit: 3
+                  mem_limit_gig: 3
+                  pod_seconds: 3600
+                  cpu_usage:
+                    full_period: 2
+                  mem_usage_gig:
+                    full_period: 3
+                  labels: label_ros:ros_app_1|label_environment:production|label_team:platform
