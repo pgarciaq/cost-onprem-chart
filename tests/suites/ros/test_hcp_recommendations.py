@@ -38,7 +38,10 @@ from e2e_helpers import (
     wait_for_provider,
     wait_for_summary_tables,
 )
-from suites.ros.test_recommendations import get_recommendations_endpoint
+from suites.ros.test_recommendations import (
+    get_fresh_token,
+    get_recommendations_endpoint,
+)
 from utils import (
     create_rh_identity_header,
     create_upload_package_from_files,
@@ -224,40 +227,39 @@ class TestHCPRecommendationsE2E:
                     include_ros=True,
                     iqe_template=_NISE_TEMPLATE,
                 )
+
+                pod_files = files.get("pod_usage_files") or []
+                ros_files = list(files.get("ros_usage_files") or [])
+                if not pod_files:
+                    pytest.skip("NISE did not generate pod_usage files for HCP E2E")
+                if not ros_files:
+                    pytest.skip("NISE did not generate ocp_ros_usage files; need --ros-ocp-info")
+
+                package_path = create_upload_package_from_files(
+                    pod_usage_files=pod_files,
+                    ros_usage_files=ros_files,
+                    cluster_id=cluster_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    node_label_files=files.get("node_label_files") or None,
+                    namespace_label_files=files.get("namespace_label_files") or None,
+                )
+
+                upload_url = f"{ingress_url.rstrip('/')}/v1/upload"
+                upload_session = requests.Session()
+                upload_session.verify = False
+                token = obtain_jwt_token(keycloak_config)
+                resp = upload_with_retry(
+                    upload_session,
+                    upload_url,
+                    package_path,
+                    token.authorization_header,
+                )
+                assert resp.status_code in (200, 201, 202), (
+                    f"Upload failed: {resp.status_code} {resp.text}"
+                )
         finally:
             e2e_helpers.NISE_TEMPLATES_DIR = prev_templates_dir
-
-        pod_files = files.get("pod_usage_files") or []
-        ros_files = list(files.get("ros_usage_files") or [])
-        if not pod_files:
-            pytest.skip("NISE did not generate pod_usage files for HCP E2E")
-        if not ros_files:
-            pytest.skip("NISE did not generate ocp_ros_usage files; need --ros-ocp-info")
-
-        with tempfile.TemporaryDirectory(prefix="hcp_pkg_e2e_") as pkg_dir:
-            package_path = create_upload_package_from_files(
-                pod_usage_files=pod_files,
-                ros_usage_files=ros_files,
-                cluster_id=cluster_id,
-                start_date=start_date,
-                end_date=end_date,
-                node_label_files=files.get("node_label_files") or None,
-                namespace_label_files=files.get("namespace_label_files") or None,
-            )
-
-            upload_url = f"{ingress_url.rstrip('/')}/v1/upload"
-            upload_session = requests.Session()
-            upload_session.verify = False
-            token = obtain_jwt_token(keycloak_config)
-            resp = upload_with_retry(
-                upload_session,
-                upload_url,
-                package_path,
-                token.authorization_header,
-            )
-            assert resp.status_code in (200, 201, 202), (
-                f"Upload failed: {resp.status_code} {resp.text}"
-            )
 
         schema = wait_for_summary_tables(
             cluster_config.namespace,
