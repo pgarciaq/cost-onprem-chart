@@ -161,6 +161,13 @@ spec:
             matchLabels:
               app.kubernetes.io/instance: {{ .Release.Name }}
               app.kubernetes.io/component: cost-worker
+        # Koku masu processor runs the cost-groups sync task against the ROS
+        # internal tags endpoint (#679: same NetworkPolicy outage class as
+        # cost-worker — masu pods were blocked from ros-api)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: cost-processor
         {{- if .Values.ui }}
         # Allow traffic from UI pod (direct proxy with X-Rh-Identity injection)
         - podSelector:
