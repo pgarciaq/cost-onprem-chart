@@ -1,4 +1,5 @@
 name: Lint and Validate Helm Chart
+# Temporary CI probe for #684; remove after triage.
 
 on:
   pull_request:
