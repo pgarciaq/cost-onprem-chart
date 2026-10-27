@@ -124,7 +124,7 @@ class TestContainerGPUMigRecommendationsExtendedFlow:
 
     @pytest.fixture(scope="class")
     def gpu_mig_cluster_id(self) -> str:
-        return f"e2e-gpu-mig-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def gpu_mig_context(

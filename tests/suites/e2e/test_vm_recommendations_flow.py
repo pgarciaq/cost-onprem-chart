@@ -169,7 +169,7 @@ class TestVMRecommendationsExtendedFlow:
 
     @pytest.fixture(scope="class")
     def vm_e2e_cluster_id(self) -> str:
-        return f"e2e-vm-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def vm_flow_context(

@@ -147,7 +147,7 @@ def _wait_for_cluster_instance_types_rows(
 class TestVMPreferenceFlow:
     @pytest.fixture(scope="class")
     def preference_cluster_id(self) -> str:
-        return f"e2e-vm-pref-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def preference_context(

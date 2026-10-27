@@ -185,7 +185,7 @@ class TestVMNotificationMatrix:
 
     @pytest.fixture(scope="class")
     def vm_notif_cluster_id(self) -> str:
-        return f"e2e-vm-notif-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def vm_notif_context(

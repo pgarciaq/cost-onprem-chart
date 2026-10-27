@@ -152,7 +152,7 @@ class TestNodeIdleConsolidationExtendedFlow:
 
     @pytest.fixture(scope="class")
     def node_idle_e2e_cluster_id(self) -> str:
-        return f"e2e-node-idle-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     def test_node_idle_consolidation_upload_and_api(
         self,

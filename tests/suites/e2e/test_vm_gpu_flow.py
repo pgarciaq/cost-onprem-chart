@@ -195,7 +195,7 @@ class TestVMGPUExtendedFlow:
 
     @pytest.fixture(scope="class")
     def vm_gpu_cluster_id(self) -> str:
-        return f"e2e-vm-gpu-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def vm_gpu_context(

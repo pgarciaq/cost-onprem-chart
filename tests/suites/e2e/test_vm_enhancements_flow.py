@@ -195,7 +195,7 @@ class TestVMEnhancementsExtendedFlow:
 
     @pytest.fixture(scope="class")
     def vm_enhancements_cluster_id(self) -> str:
-        return f"e2e-vm-enh-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def vm_enhancements_context(

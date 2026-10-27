@@ -93,8 +93,7 @@ class TestClusterQuotaRecommendationsExtendedFlow:
 
     @pytest.fixture(scope="class")
     def cluster_quota_e2e_cluster_id(self) -> str:
-        short = uuid.uuid4().hex[:8]
-        return f"e2e-crq-{short}"
+                return str(uuid.uuid4())
 
     def test_cluster_quota_e2e_upload_and_api(
         self,

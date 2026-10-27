@@ -148,7 +148,7 @@ class TestVMIOProfilingExtendedFlow:
 
     @pytest.fixture(scope="class")
     def vm_io_cluster_id(self) -> str:
-        return f"e2e-vm-io-{uuid.uuid4().hex[:8]}"
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def vm_io_context(
