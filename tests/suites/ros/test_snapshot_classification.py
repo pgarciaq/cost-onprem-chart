@@ -198,7 +198,9 @@ class TestSnapshotClassificationExtendedFlow:
 
     @pytest.fixture(scope="class")
     def snapshot_e2e_cluster_id(self) -> str:
-        return f"e2e-snap-{uuid.uuid4().hex[:8]}"
+        # UUID-shaped: the ros-processor validates Cluster_uuid with
+        # validate:"required,uuid" and commits non-UUID ids to the DLQ.
+        return str(uuid.uuid4())
 
     @pytest.fixture(scope="class")
     def snapshot_flow_context(
@@ -208,10 +210,14 @@ class TestSnapshotClassificationExtendedFlow:
         snapshot_e2e_cluster_id: str,
         ingress_url: str,
         ros_api_url: str,
-        http_session: requests.Session,
     ) -> SnapshotFlowContext:
         if not ensure_nise_available():
             pytest.skip("NISE is not available for snapshot classification E2E")
+
+        # Class-scoped fixture: the global http_session is function-scoped
+        # (pytest forbids the upward request), so build the session here.
+        http_session = requests.Session()
+        http_session.verify = False
 
         probe_auth = get_fresh_token(keycloak_config, cluster_config, http_session)
         if probe_auth:
