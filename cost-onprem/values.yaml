@@ -282,6 +282,24 @@ ros:
           memory: "512Mi"
           cpu: "300m"
 
+    # Correlator CronJob — hourly thin-correlator cycle (#646/#658/#711):
+    # evaluates HCP advisories (headroom, api-tax, zombie). Hourly is the
+    # design cadence — daily windows refresh in place on hourly reruns, and
+    # a cycle takes seconds. Migrates to koku-service-operator with the rest
+    # of the ROS components.
+    correlator:
+      enabled: true
+      schedule: "0 * * * *"  # Hourly
+      serviceName: ros-housekeeper-correlator
+      logLevel: INFO
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "300m"
+
 # =============================================================================
 # Cost Management (Koku) Configuration
 # =============================================================================

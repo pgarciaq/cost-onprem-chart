@@ -1,0 +1,68 @@
+{{- if .Values.ros.housekeeper.correlator.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cost-onprem.fullname" . }}-ros-correlator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cost-onprem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ros-correlator
+spec:
+  schedule: {{ .Values.ros.housekeeper.correlator.schedule | quote }}
+  # Never overlap runs: the correlator refreshes daily windows in place;
+  # a queued second run adds nothing and risks write contention (#711).
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "cost-onprem.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: ros-correlator
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ .Values.ros.serviceAccount.name }}
+          {{- with .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 10 }}
+          {{- end }}
+          containers:
+          - name: ros-correlator
+            image: {{ .Values.ros.image.repository }}:{{ .Values.ros.image.tag }}
+            imagePullPolicy: {{ .Values.ros.image.pullPolicy | default .Values.global.pullPolicy }}
+            command: ["sh"]
+            args:
+              - "-c"
+              - |
+                ./rosocp start housekeeper --correlate
+            env:
+{{- include "cost-onprem.ros.goMemLimitEnv" (dict "root" . "component" "correlator") | nindent 12 }}
+{{- include "cost-onprem.ros.featureEnv" . | nindent 12 }}
+            - name: CLOWDER_ENABLED
+              value: "false"
+            - name: SERVICE_NAME
+              value: {{ .Values.ros.housekeeper.correlator.serviceName | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.ros.housekeeper.correlator.logLevel | quote }}
+            - name: DB_HOST
+              value: {{ include "cost-onprem.database.host" . }}
+            - name: DB_PORT
+              value: {{ .Values.database.server.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.database.ros.name | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.secretName" . }}
+                  key: ros-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cost-onprem.database.secretName" . }}
+                  key: ros-password
+            - name: DATABASE_URL
+              value: {{ include "cost-onprem.database.url" . }}
+{{- include "cost-onprem.ros.dbPoolEnv" . | nindent 12 }}
+            resources:
+              {{- toYaml .Values.ros.housekeeper.correlator.resources | nindent 14 }}
+{{- end }}
