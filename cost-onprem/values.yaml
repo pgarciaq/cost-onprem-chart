@@ -330,6 +330,12 @@ costManagement:
     ocpBackendUrl: ""
     apiHost: ""
     apiPort: ""
+    # Koku -> ROS cost-groups push (masu ros_costgroups_sync; the W3 zombie
+    # rule's admin-curated platform exclusion, #665/#712/#719). Requires
+    # ros.api.tagsSource=api (the projected ROS SA token only mounts in api
+    # mode) and a koku image carrying the #712 fix (worker task
+    # registration) — older images silently discard the beat's dispatches.
+    costGroupsPush: true
 
   # ---------------------------------------------------------------------------
   # Koku API Configuration

@@ -410,6 +410,14 @@ Common environment variables for Koku API and Celery
 # Projected SA token mount path (workers set automountServiceAccountToken: false)
 - name: ROS_SA_TOKEN_PATH
   value: "/var/run/secrets/ros/token"
+{{- if .Values.costManagement.rosIntegration.costGroupsPush }}
+# Koku -> ROS cost-groups push (masu ros_costgroups_sync, #665/#712/#719) —
+# rides the same api-mode token as the tag push
+- name: ROS_COSTGROUPS_ENABLED
+  value: "true"
+- name: ROS_COSTGROUPS_SOURCE
+  value: "api"
+{{- end }}
 {{- end }}
 {{- if .Values.costManagement.rosIntegration.apiHost }}
 - name: ROS_API_HOST
