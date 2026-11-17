@@ -1,14 +1,16 @@
 # SNO aarch64 test cluster - branch images
-# Cluster: sno.karmalabs.corp (OCP 4.22 aarch64)
+# Cluster: sno.karmalabs.corp (OCP 5.0.1 aarch64, ampere-hr330a-13)
 # Uses internal OCP image registry
-# Image tag: branch-202607221358 (pgarciaq-rosocp-superpowers-phase16)
+# Image tag: branch-202611171356 (current ARM64 image build)
 
-# insights-rbac built natively on Apollo aarch64 and pushed to SNO registry.
+# insights-rbac is amd64-only upstream; disabled on aarch64 SNO. Koku uses
+# ENHANCED_ORG_ADMIN=true and the metrics operator authenticates with the
+# Keycloak org-admin service-account role.
 rbac:
-  enabled: true
+  enabled: false
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-rbac
-    tag: "branch-202607231512-ubi9"
+    tag: "branch-202611171356"
     pullPolicy: IfNotPresent
   bootstrapAdmin:
     enabled: true
@@ -22,7 +24,7 @@ global:
 ros:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/ros-ocp-backend
-    tag: "branch-202607221358"
+    tag: "branch-202611171356"
     pullPolicy: IfNotPresent
   api:
     businessHoursEnabled: true
@@ -42,11 +44,13 @@ costManagement:
   api:
     enabled: true
     env:
-      # False so Koku calls insights-rbac (required when rbac.enabled=true)
-      ENHANCED_ORG_ADMIN: "False"
+        # The upstream metrics operator authenticates with the Keycloak org-admin
+        # service-account role. Use the direct org-admin path for this SNO lab;
+        # RBAC keycloak principal synchronization is not enabled here.
+        ENHANCED_ORG_ADMIN: "True"
     image:
       repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku
-      tag: "branch-202607221358"
+      tag: "branch-202611171356"
       pullPolicy: IfNotPresent
   celery:
     pollingTimer: 60
@@ -108,7 +112,7 @@ costManagement:
 ingress:
   image:
     repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/insights-ingress-go
-    tag: "branch-202607221358"
+    tag: "branch-202611171356"
     pullPolicy: IfNotPresent
 
 # Stock multi-arch PostgreSQL (docker.io/library/postgres:16)
@@ -201,7 +205,7 @@ gatewayRoute:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
 
-# Resources for SNO (generous: 100 vCPUs / 160 GiB)
+# Resources for SNO (16 vCPU / 96 GiB)
 resources:
   application:
     requests:
@@ -216,6 +220,6 @@ ui:
   replicaCount: 1
   app:
     image:
-      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku-ui
-      tag: "branch-202607221358"
+      repository: image-registry.openshift-image-registry.svc:5000/cost-onprem/koku-ui-onprem
+      tag: "branch-202611171356"
       pullPolicy: IfNotPresent
