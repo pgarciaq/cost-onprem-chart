@@ -107,6 +107,16 @@ costManagement:
             memory: "2Gi"
   listener:
     replicas: 2
+    # The chart default (600Mi limit / 300Mi request) OOMKills this consumer
+    # (exit 137) on larger ingests; both replicas died draining a 248 MB upload
+    # and the Kafka backlog only cleared after raising the limit. 4Gi does it.
+    resources:
+      requests:
+        cpu: "150m"
+        memory: "512Mi"
+      limits:
+        cpu: "300m"
+        memory: "4Gi"
 
 # Custom arm64 ingress image
 ingress:
