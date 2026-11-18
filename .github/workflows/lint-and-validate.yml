@@ -35,6 +35,42 @@ jobs:
         helm template cost-onprem . > /tmp/rendered.yaml
         echo "✓ helm template with ZERO --set flags succeeded"
 
+    - name: Assert ROS Kafka consumers never auto-commit
+      run: |
+        set -euo pipefail
+
+        echo "=== Asserting KAFKA_AUTO_COMMIT renders as false for every ROS consumer ==="
+        # ros-ocp-backend #893: with auto-commit on, librdkafka stores an offset
+        # when a message is polled and commits it ~5 s later, before the
+        # pipeline finishes. A DB hiccup during ingest then discards accepted
+        # uploads with no retry, no DLQ entry and no report_file_status row.
+        # The chart default overrode the backend's own safe default once
+        # already; a values comment alone does not stop that recurring.
+        rendered=$(helm template cost-onprem cost-onprem)
+        entries=$(printf '%s\n' "$rendered" | awk '
+          { line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line) }
+          line == "- name: KAFKA_AUTO_COMMIT" { want = 1; next }
+          want { print line; want = 0 }
+        ')
+        count=$(printf '%s\n' "$entries" | grep -c . || true)
+        distinct=$(printf '%s\n' "$entries" | sort -u)
+
+        echo "found ${count} KAFKA_AUTO_COMMIT entries:"
+        echo "$distinct"
+
+        # processor + recommendation-poller: a drop here means the env was
+        # renamed or removed, which would make this assertion vacuous.
+        if [ "$count" -lt 2 ]; then
+          echo "::error::expected at least 2 KAFKA_AUTO_COMMIT entries (processor, recommendation-poller), found ${count}"
+          exit 1
+        fi
+        if [ "$distinct" != 'value: "false"' ]; then
+          echo "::error::KAFKA_AUTO_COMMIT must render as \"false\" for every ROS Kafka consumer (ros-ocp-backend #893)"
+          exit 1
+        fi
+
+        echo "✓ ${count} KAFKA_AUTO_COMMIT entries, all false"
+
     - name: Verify oc-mirror compatibility
       run: |
         set -euo pipefail
