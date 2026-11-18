@@ -195,7 +195,14 @@ ros:
 
     # Kafka consumer configuration
     kafkaConsumerGroupId: ros-processor
-    kafkaAutoCommit: true
+    # Manual commit is required for the retry/DLQ ladder to run. With auto-commit,
+    # librdkafka stores an offset when the message is polled and commits it ~5s
+    # later — before the pipeline finishes, since the dispatcher reads up to 16
+    # messages per partition ahead of the handler. Transient failures are then
+    # neither retried nor dead-lettered and leave no report_file_status row
+    # (ros-ocp-backend #893). Changing this requires a recreate, not a rolling
+    # update: old auto-commit pods ack offsets the new ones are still processing.
+    kafkaAutoCommit: false
     uploadTopic: hccm.ros.events
 
     # Kruize integration
