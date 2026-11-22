@@ -71,6 +71,54 @@ jobs:
 
         echo "✓ ${count} KAFKA_AUTO_COMMIT entries, all false"
 
+    - name: Assert ROS connection budget satisfies the product rule
+      run: |
+        set -euo pipefail
+
+        echo "=== Asserting ROS_DB_MAX_CONNS satisfies the product's pool rule ==="
+        # ros-ocp-backend #898: the product warns at startup when
+        # ManifestDownloadWorkers × KafkaWorkers > DBMaxConns − 2 (the
+        # reserve for recommendations + health checks). The chart does not
+        # override the worker fan-out, so the product defaults apply
+        # (2 download workers × 3 kafka workers = 6 in-flight connections),
+        # and every rendered ROS_DB_MAX_CONNS must be ≥ 8. A drop below
+        # that recreates the underfed pool the processor warns about on
+        # every start — announced once, then ignored.
+        rendered=$(helm template cost-onprem cost-onprem)
+        entries=$(printf '%s\n' "$rendered" | awk '
+          { line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line) }
+          line == "- name: ROS_DB_MAX_CONNS" { want = 1; next }
+          want { print line; want = 0 }
+        ')
+        count=$(printf '%s\n' "$entries" | grep -c . || true)
+        distinct=$(printf '%s\n' "$entries" | sort -u)
+
+        echo "found ${count} ROS_DB_MAX_CONNS entries:"
+        echo "$distinct"
+
+        # A drop here means the env was renamed or removed, which would
+        # make this assertion vacuous.
+        if [ "$count" -lt 1 ]; then
+          echo "::error::no ROS_DB_MAX_CONNS entries rendered"
+          exit 1
+        fi
+
+        min_conns=8
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          conns=$(printf '%s' "$line" | grep -oP 'value: "?\K[0-9]+')
+          if [ -z "$conns" ]; then
+            echo "::error::could not parse ROS_DB_MAX_CONNS value from: ${line}"
+            exit 1
+          fi
+          if [ "$conns" -lt "$min_conns" ]; then
+            echo "::error::ROS_DB_MAX_CONNS=${conns} breaks the product rule: 2 download workers × 3 kafka workers = 6 in-flight, +2 reserved = ${min_conns} minimum (ros-ocp-backend #898)"
+            exit 1
+          fi
+        done <<< "$distinct"
+
+        echo "✓ ${count} ROS_DB_MAX_CONNS entries, all ≥ ${min_conns} (product rule satisfied)"
+
     - name: Verify oc-mirror compatibility
       run: |
         set -euo pipefail

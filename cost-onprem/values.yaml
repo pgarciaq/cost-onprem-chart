@@ -58,10 +58,14 @@ ros:
     name: ros-backend
 
   # PostgreSQL connection pool (pgxpool max per ROS process).
-  # Each ROS pod (api, processor, recommendationPoller, housekeeper, partitionCleaner)
-  # opens its own pool. Budget: total_ros_conns = dbMaxConns × num_ros_pods.
+  # Each ROS pod (api, processor, recommendationPoller, housekeeper, partitionCleaner,
+  # correlator) opens its own pool. Budget: total_ros_conns = dbMaxConns × num_ros_pods.
+  # Per-pod product rule (startup-checked in ros-ocp-backend, #898): ManifestDownloadWorkers ×
+  # KafkaWorkers ≤ dbMaxConns − 2 (2 reserved for recommendations + health checks). The
+  # product's default fan-out is 2 × 3 = 6 in-flight, so dbMaxConns must be ≥ 8; the
+  # default here (10) matches the product's own defaultDBMaxConns with the reserve intact.
   # See database.postgresqlConfiguration connection budget comment block below.
-  dbMaxConns: 5
+  dbMaxConns: 10
 
   # Comma-separated hostnames allowed in presigned CSV URLs (ROS_CSV_ALLOWED_HOSTS).
   # Empty string auto-derives from objectStorage.endpoint (recommended for on-prem).
@@ -124,12 +128,12 @@ ros:
 
     # Horizontal Pod Autoscaler (requires cluster metrics-server and CPU requests on pods).
     # Connection budget: maxReplicas × ros.dbMaxConns must fit within PostgreSQL max_connections.
-    # With defaults (dbMaxConns=5, maxReplicas=4) ROS API uses up to 20 connections — see
+    # With defaults (dbMaxConns=10, maxReplicas=4) ROS API uses up to 40 connections — see
     # database.postgresqlConfiguration comment block for the full connection budget.
     autoscaling:
       enabled: false  # Disabled by default; enable in production
       minReplicas: 1
-      maxReplicas: 4  # Cap: 4 × dbMaxConns(5) = 20 API connections; lower if using external DBaaS
+      maxReplicas: 4  # Cap: 4 × dbMaxConns(10) = 40 API connections; lower if using external DBaaS
       targetCPUUtilizationPercentage: 70
       # targetMemoryUtilizationPercentage: 80  # Optional
 
@@ -811,19 +815,27 @@ database:
   storage:
     size: "30Gi"
 
-  # PostgreSQL server configuration appended to postgresql.conf via the sclorg postgresql-cfg/ hook.
+  # PostgreSQL server configuration appended to postgresql.conf via the sclorg postgresql-cfg/ hook
+  # (and applied image-independently as ALTER SYSTEM init SQL on first initialization — #899).
   # Tune memory-related settings together with database.resources.limits.memory.
   #
+  # Per-pod product rule (ros-ocp-backend #898, startup-checked): ManifestDownloadWorkers ×
+  # KafkaWorkers ≤ dbMaxConns − 2 (2 reserved for recommendations + health checks). With the
+  # product's default fan-out (2 × 3 = 6), dbMaxConns must be ≥ 8 — the chart default (10)
+  # satisfies it; the old default (5) triggered the processor's startup warning on every boot.
+  #
   # Connection budget (with max_connections=200):
-  # - ROS API: dbMaxConns (5) × HPA maxReplicas (4) = 20
-  # - ROS processor: 5
-  # - ROS housekeeper: 2
+  # - ROS API: dbMaxConns (10) × HPA maxReplicas (4) = up to 40
+  # - ROS processor: 10
+  # - ROS recommendationPoller: 10
+  # - ROS housekeeper: 10
+  # - ROS cronjobs (partitionCleaner, correlator): 10 each while running
   # - Koku workers: ~20
   # - Koku server: ~10
   # - RBAC: ~5
   # - Admin/migrations: ~5
-  # - Headroom: ~133
-  # Total estimated: ~67 of 200
+  # - Headroom: ~80 (peaks when cronjobs overlap an HPA-max API)
+  # Total estimated: up to ~120 of 200
   #
   # If using external PostgreSQL (DBaaS), ensure max_connections >= 200
   # and adjust dbMaxConns/HPA accordingly.
