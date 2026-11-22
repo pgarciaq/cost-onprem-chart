@@ -157,7 +157,13 @@ jobs:
         sleep 2
 
         echo "=== Downloading oc-mirror ==="
-        curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/oc-mirror.tar.gz | tar -xzf -
+        # #912: the ocp/stable/ path is dead (404) — oc-mirror now lives in
+        # the versioned channel directories. Pinned to latest-4.22 (verified
+        # end-to-end: v2 mode, the v2alpha1 image-set config, and the dry-run
+        # mapping.txt this workflow consumes). The docs point at the
+        # authenticated console downloads; this URL is the unauthenticated
+        # equivalent. Bump the channel when the pin goes stale.
+        curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest-4.22/oc-mirror.tar.gz | tar -xzf -
         chmod +x oc-mirror
 
         echo "=== Creating ImageSetConfiguration ==="
