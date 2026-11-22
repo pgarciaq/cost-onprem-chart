@@ -21,15 +21,16 @@ The chart default `max_connections` is **200**. Application pools must stay belo
 
 | Component | Connections (default config) |
 |-----------|------------------------------|
-| ROS API | `ros.dbMaxConns` (5) × HPA `maxReplicas` (4) = **20** |
-| ROS processor | **5** |
-| ROS housekeeper / poller / cleaner | **~7** |
+| ROS API | `ros.dbMaxConns` (10) × HPA `maxReplicas` (4) = **up to 40** |
+| ROS processor / poller / housekeeper / cleaner | **10 each** |
 | Koku workers (Celery) | **~20** |
 | Koku API / masu | **~10** |
 | RBAC | **~5** |
 | Admin / migrations | **~5** |
-| **Estimated total** | **~67 of 200** |
-| **Headroom** | **~133** |
+| **Estimated total** | **up to ~120 of 200** |
+| **Headroom** | **~80** |
+
+**Per-pod rule (checked by the product at startup, ros-ocp-backend #898):** `ManifestDownloadWorkers × KafkaWorkers ≤ ros.dbMaxConns − 2` — two connections are reserved for recommendations and health checks. The product's default fan-out is 2 × 3 = 6 in-flight, so `ros.dbMaxConns` must be **≥ 8**; the chart default (10) matches the product's own `defaultDBMaxConns`. Dropping `ros.dbMaxConns` below 8 makes every processor start log a connection-pool warning that is then ignored — the chart's CI asserts the rendered value satisfies the rule.
 
 If using **external PostgreSQL (DBaaS)**:
 
@@ -46,7 +47,24 @@ See `cost-onprem/values.yaml` (`database.postgresqlConfiguration` comment block)
 |-------|---------|
 | `database.resources` | Container CPU/memory requests and limits |
 | `database.storage.size` | PVC size for `/var/lib/postgresql/data` |
-| `database.postgresqlConfiguration` | Curated `postgresql.conf` settings (appended via sclorg `postgresql-cfg/`) |
+| `database.postgresqlConfiguration` | Curated `postgresql.conf` settings — applied on **both** image families (see below) |
+
+### How `postgresqlConfiguration` applies (#899)
+
+The settings travel two paths, both carrying the same values:
+
+1. **ALTER SYSTEM init SQL** (image-family independent): the chart renders `init-tuning.sh` into the database init-scripts directory (`database.server.initScriptsMountPath`). Every image family runs `.sh` init scripts — sclorg/RHEL from `/opt/app-root/src/postgresql-init`, the library `postgres` image from `/docker-entrypoint-initdb.d`. The settings persist to `postgresql.auto.conf` on the PVC and survive restarts.
+2. **The sclorg `postgresql-cfg/` hook** (sclorg/RHEL images only): `custom-postgresql.conf` is appended to `postgresql.conf` on every container start. On the library `postgres` image this hook does not exist (upstream ships `include_dir` commented out), which is why path 1 exists.
+
+**Init scripts run on first initialization only** (empty PVC). Changing `postgresqlConfiguration` on an existing database does **not** re-apply it — apply the change by hand instead:
+
+```bash
+oc exec -it cost-onprem-database-0 -- psql -U postgres \
+  -c "ALTER SYSTEM SET shared_buffers = '1GB';"
+# then restart the database pod for restart-only settings
+```
+
+`ALTER SYSTEM` is image-independent and persists in `postgresql.auto.conf` — the same mechanism path 1 uses. Verify what is live with `SHOW shared_buffers;` / `SHOW max_connections;` (in `psql`, or via `oc exec`).
 
 Example production override (`production-values.yaml`):
 

@@ -15,6 +15,18 @@ All notable changes to the cost-onprem Helm chart are documented in this file.
   the recomputed totals, and chart CI asserts the rendered
   `ROS_DB_MAX_CONNS` satisfies the rule so the value cannot silently
   regress.
+- **`database.postgresqlConfiguration` applies on every image family ([#899](https://github.com/pgarciaq/ros-ocp-backend/issues/899)):**
+  the tuning ConfigMap only ever worked on sclorg/RHEL images (their
+  `postgresql-cfg/` init hook); on the library `postgres` image — the
+  locally-built default on airgapped/aarch64 deployments — nothing read
+  the mounted conf, silently. The values now also render as
+  `ALTER SYSTEM SET` init SQL (`init-tuning.sh`) in the database
+  init-scripts directory, which every image family runs and which
+  persists to `postgresql.auto.conf`. Init scripts run on first
+  initialization only; see `docs/operations/database-tuning.md` for the
+  dual-path semantics and the manual `ALTER SYSTEM` escape hatch for
+  existing databases.
+
 ### Added
 
 - PostgreSQL tuning exposed via Helm values: `database.resources`, `database.storage.size`, and `database.postgresqlConfiguration` (ConfigMap mounted to sclorg `postgresql-cfg/`). See `docs/operations/database-tuning.md`.

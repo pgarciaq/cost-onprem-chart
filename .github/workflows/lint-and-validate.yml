@@ -119,6 +119,32 @@ jobs:
 
         echo "✓ ${count} ROS_DB_MAX_CONNS entries, all ≥ ${min_conns} (product rule satisfied)"
 
+    - name: Assert postgresqlConfiguration applies on any image family
+      run: |
+        set -euo pipefail
+
+        echo "=== Asserting ALTER SYSTEM init SQL is generated from postgresqlConfiguration ==="
+        # ros-ocp-backend #899: the sclorg postgresql-cfg/ hook only exists
+        # on sclorg/RHEL images; the library postgres image has no such
+        # hook (upstream's postgresql.conf.sample ships include_dir
+        # commented out), so the mounted conf was silently ignored on
+        # custom-image deployments. The values must also render as
+        # ALTER SYSTEM init SQL, which every image family runs from its
+        # init-scripts directory and which persists to postgresql.auto.conf.
+        rendered=$(helm template cost-onprem cost-onprem)
+        if ! printf '%s\n' "$rendered" | grep -q 'ALTER SYSTEM SET shared_buffers'; then
+          echo "::error::postgresqlConfiguration must render as ALTER SYSTEM init SQL (image-family independent) — ros-ocp-backend #899"
+          exit 1
+        fi
+        # The sclorg hook path stays for sclorg/RHEL images (re-applies on
+        # every container start); both mechanisms carry the same values.
+        if ! printf '%s\n' "$rendered" | grep -q 'shared_buffers = '; then
+          echo "::error::the sclorg postgresql-cfg conf must still render (re-application path) — ros-ocp-backend #899"
+          exit 1
+        fi
+
+        echo "✓ postgresqlConfiguration renders as both ALTER SYSTEM init SQL and the sclorg conf"
+
     - name: Verify oc-mirror compatibility
       run: |
         set -euo pipefail

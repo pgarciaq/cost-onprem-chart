@@ -13,6 +13,10 @@ metadata:
     "helm.sh/hook-weight": "-15"
 data:
   # Appended to postgresql.conf by the sclorg/RHEL image postgresql-cfg/ hook.
+  # sclorg-only mechanism (re-applies on every container start); the same
+  # values also render as ALTER SYSTEM init SQL in the db-init ConfigMap,
+  # which works on every image family (#899 — see
+  # docs/operations/database-tuning.md).
   custom-postgresql.conf: |
     {{- range $key, $value := .Values.database.postgresqlConfiguration }}
     {{ $key }} = {{ $value }}

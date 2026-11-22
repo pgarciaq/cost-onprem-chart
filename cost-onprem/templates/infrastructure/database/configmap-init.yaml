@@ -118,4 +118,22 @@ data:
     -- Enable pg_stat_statements extension on koku database
     \c {{ .Values.database.koku.name }}
     CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  {{- if .Values.database.postgresqlConfiguration }}
+  # #899: postgresqlConfiguration as ALTER SYSTEM init SQL — image-family
+  # independent. The sclorg postgresql-cfg/ hook (custom-postgresql.conf)
+  # only exists on sclorg/RHEL images; the library postgres image has no
+  # include_dir hook (upstream ships it commented out), so the mounted
+  # conf was silently ignored on custom-image deployments. ALTER SYSTEM
+  # persists to postgresql.auto.conf on the PVC and applies on every
+  # family. Init scripts run on FIRST initialization only — changing
+  # postgresqlConfiguration on an existing database requires a manual
+  # ALTER SYSTEM (see docs/operations/database-tuning.md).
+  init-tuning.sh: |
+    #!/bin/bash
+    set -e
+    echo "Applying database.postgresqlConfiguration via ALTER SYSTEM (#899)..."
+    {{- range $key, $value := .Values.database.postgresqlConfiguration }}
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c 'ALTER SYSTEM SET {{ $key }} = {{ $value | quote }};'
+    {{- end }}
+  {{- end }}
 {{- end }}
