@@ -183,3 +183,60 @@ def test_interval_rows_from_yaml_counts_gpu_variants():
     pod_rows, ns_rows = gen.interval_rows_from_yaml(cfg)
     assert pod_rows == 4  # 2 (gpu variants) + 1 + 1
     assert ns_rows == 2
+
+
+def test_interval_rows_from_yaml_accepts_the_flat_profile_style():
+    """The perf profiles' flat item style: ``- node:`` with null value.
+
+    ``- node:\\n  node_name: …`` parses as ``{'node': None, …}`` — the key
+    exists with a null value, so a naive ``.get(key, wrap)`` returns None
+    and the parser crashes on the real profile YAML (caught on the
+    hypervisor run; the nested-style unit test alone had hidden it).
+    """
+    cfg = {
+        "generators": [
+            {
+                "OCPGenerator": {
+                    "nodes": [
+                        {
+                            "node": None,  # the flat style's stray key
+                            "node_name": "n1",
+                            "namespaces": {
+                                "ns-a": {
+                                    "pods": [
+                                        {"pod": None, "pod_name": "p1"},
+                                        {"pod": None, "pod_name": "p2"},
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    pod_rows, ns_rows = gen.interval_rows_from_yaml(cfg)
+    assert pod_rows == 2
+    assert ns_rows == 1
+
+
+def test_interval_rows_from_the_real_profile_yaml():
+    """The generator must compute alignment from the actual profile output."""
+    import sys as _sys
+    _sys.path.insert(0, str(CHART_ROOT / "tests"))
+    from datetime import datetime, timezone
+
+    from suites.performance.profiles import get_profile_nise_yaml
+
+    text = get_profile_nise_yaml(
+        "small",
+        datetime(2026, 11, 1, tzinfo=timezone.utc),
+        datetime(2026, 11, 2, tzinfo=timezone.utc),
+        "11111111-2222-3333-4444-555555555555",
+        0,
+    )
+    import yaml as _yaml
+
+    pod_rows, ns_rows = gen.interval_rows_from_yaml(_yaml.safe_load(text))
+    assert pod_rows == 15 * 10 * 5  # small: 15 nodes x 10 ns x 5 pods
+    assert ns_rows == 15 * 10

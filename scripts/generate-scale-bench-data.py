@@ -41,6 +41,18 @@ def expected_container_ids(profile_name: str) -> int:
     )
 
 
+def _inner(wrap: dict, key: str) -> dict:
+    """Unwrap ``- key: {...}`` list items, accepting both YAML styles.
+
+    Nested style: ``- node:\\n    node_name: …`` parses as ``{'node': {…}}``.
+    Flat style (what the perf profiles emit): ``- node:\\n  node_name: …``
+    parses as ``{'node': None, 'node_name': …}`` — the key exists with a
+    null value, so ``.get(key, wrap)`` returns None, not the fallback.
+    """
+    value = wrap.get(key)
+    return value if isinstance(value, dict) else wrap
+
+
 def interval_rows_from_yaml(cfg: dict) -> tuple[int, int]:
     """(pod-variant rows, namespace rows) emitted per quarter-hour interval.
 
@@ -54,14 +66,14 @@ def interval_rows_from_yaml(cfg: dict) -> tuple[int, int]:
         for name, block in generator.items():
             if name != "OCPGenerator":
                 continue  # VM generators emit other, non-hour-blocked types
-            nodes = block.get("nodes", [])
+            nodes = block.get("nodes", []) or []
             for node_wrap in nodes:
-                node = node_wrap.get("node", node_wrap)
+                node = _inner(node_wrap, "node")
                 namespaces = node.get("namespaces", {}) or {}
                 ns_rows += len(namespaces)
                 for ns_body in namespaces.values():
                     for pod_wrap in ns_body.get("pods", []) or []:
-                        pod = pod_wrap.get("pod", pod_wrap)
+                        pod = _inner(pod_wrap, "pod")
                         gpus = pod.get("gpus") or []
                         pod_rows += max(1, len(gpus))
     return pod_rows, ns_rows
