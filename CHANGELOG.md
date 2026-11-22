@@ -6,6 +6,17 @@ All notable changes to the cost-onprem Helm chart are documented in this file.
 
 ### Fixed
 
+- **Bench fixture file splits land on cluster-hour boundaries ([#894](https://github.com/pgarciaq/ros-ocp-backend/issues/894)):**
+  nise's default `--file-row-limit` (100,000) split the ROS usage CSVs
+  mid-hour — the processor's per-hour upsert keeps only the last file's
+  subset for the boundary hour, so ~0.09% of bench node-hours
+  under-counted pods and usage. The generator now computes the limit as
+  a whole number of cluster-hours (4 quarter-hours × the per-interval
+  row count — the lcm of pod rows and namespace rows, since nise emits
+  interval-major, not node-major) and enforces it with a post-generation
+  scan that fails on any incomplete hour. The generator script is now
+  under version control.
+
 - **Connection budget satisfies the product's per-pod rule ([#898](https://github.com/pgarciaq/ros-ocp-backend/issues/898)):**
   `ros.dbMaxConns` defaulted to 5 while the product's default worker fan-out
   (2 download × 3 kafka = 6 in-flight) needs `dbMaxConns − 2 ≥ 6` — every
